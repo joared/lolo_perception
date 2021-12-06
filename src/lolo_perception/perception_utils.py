@@ -31,28 +31,22 @@ def plotAxis(img, translationVector, rotationVector, camera, points, scale):
                                         camera.cameraMatrix, 
                                         camera.distCoeffs)
 
-    center = center[0][0][0] / camera.pixelWidth, center[0][0][1] / camera.pixelHeight   
+    center = center[0][0][0], center[0][0][1]   
     for d, c in zip((xDir, yDir, zDir), ((0,0,255), (0,255,0), (255,0,0))):
         cx = center[0]
         cy = center[1]
         point1 = (int(round(cx)), int(round(cy)))
-        point2 = (int(round(d[0][0][0] / camera.pixelWidth)), int(round(d[0][0][1] / camera.pixelHeight)))
+        point2 = (int(round(d[0][0][0])), int(round(d[0][0][1])))
         cv.line(img, point1, point2, c, 5)
 
 def plotPosePoints(img, translationVector, rotationVector, camera, points, color):
     projPoints = projectPoints(translationVector, rotationVector, camera, points)
-    plotPoints(img, camera, projPoints, color)
+    plotPoints(img, projPoints, color)
 
-def plotPointsPixel(img, points, color, radius=1):
+def plotPoints(img, points, color, radius=1):
     for p in points:
-        x = int(p[0])
-        y = int(p[1])
-        cv.circle(img, (x,y), radius, color, 3)
-
-def plotPoints(img, camera, points, color, radius=1):
-    for p in points:
-        x = int( round(p[0] / camera.pixelWidth) )
-        y = int( round(p[1] / camera.pixelHeight) )
+        x = int( round(p[0]) )
+        y = int( round(p[1]) )
         cv.circle(img, (x,y), radius, color, 3)
 
 def projectPoints(translationVector, rotationVector, camera, points):

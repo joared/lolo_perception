@@ -38,14 +38,14 @@ class FeatureModel:
 smallPrototype5 = FeatureModel(polygons([0, 0.06], 
                                         [1, 4], 
                                         [False, True], 
-                                        [0.043, 0]))
+                                        [-0.043, 0]))
 
 smallPrototype9 = FeatureModel(polygons([0, 0.06], 
                                         [1, 8], 
                                         [False, True], 
-                                        [0.043, 0]))
+                                        [-0.043, 0]))
 
-bigPrototype5 = FeatureModel(np.array([[0, 0, 0.465], 
+bigPrototype5 = FeatureModel(np.array([[0, 0, -0.465], 
                                        [-0.33, -0.2575, 0], 
                                        [0.33, -0.2575, 0], 
                                        [0.33, 0.2575, 0], 
@@ -60,7 +60,7 @@ bigPrototype52 = FeatureModel(np.array([[0.04, -0.2575-0.05, 0],
 idealModel = FeatureModel(polygons([0, 1], 
                                    [1, 4], 
                                    [False, True], 
-                                   [0.7167, 0]))
+                                   [-0.7167, 0]))
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt

@@ -28,8 +28,8 @@ class DSPoseEstimator:
         self.flag = flag
         self.calcCovariance = calcCovariance
 
-        self.imageCovariance = np.array([[self.camera.pixelWidth*2, 0], 
-                                         [0, self.camera.pixelHeight*2]])
+        self.imageCovariance = np.array([[2, 0], 
+                                         [0, 2]])
 
         self.poseAcquired = False
 
@@ -84,9 +84,9 @@ class DSPoseEstimator:
                                                                     rvec=guessRot,
                                                                     flags=cv.SOLVEPNP_ITERATIVE)
         else:
-            guessTrans = np.array([[0.], [0.], [1/2.8*1e6*self.camera.pixelWidth]])
+            guessTrans = np.array([[0.], [0.], [1]])
             print("Guess trans", guessTrans)
-            guessRot = np.array([[0.], [np.pi], [0.]])
+            guessRot = np.array([[0.], [0.], [0.]])
             # On axis-angle: https://en.wikipedia.org/wiki/Axis%E2%80%93angle_representation#Relationship_to_other_representations
             success, rotationVector, translationVector = cv.solvePnP(featurePoints,
                                                                     associatedPoints,

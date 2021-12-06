@@ -530,26 +530,22 @@ class ThresholdFeatureExtractor:
         if self.camera: # if no camera defined, we don't associate (need pixelsize to associate)
             points = np.array(points, dtype=np.float32)
 
-            # convert from pixels to meters
-            points[:,0] *= self.camera.pixelWidth
-            points[:,1] *= self.camera.pixelHeight
-
             # we need to rotate the points if we want the relative orientation to be different, 
             # otherwise feature association will fail
-            points3DAss = self.featureModel.features[:, :3].transpose()
-            points3DAss = np.matmul( R.from_euler("XYZ", (0, np.pi, 0)).as_dcm(), points3DAss).transpose()
+            #points3DAss = self.featureModel.features[:, :3].transpose()
+            #points3DAss = np.matmul( R.from_euler("XYZ", (0, np.pi, 0)).as_dcm(), points3DAss).transpose()
             
-            #points3DAss = self.featureModel.features.copy()
+            points3DAss = self.featureModel.features.copy()
             points3DAss = np.append(points3DAss, np.ones((points3DAss.shape[0], 1)), axis=1)
 
             associatedPoints, featurePointsGuess = featureAssociation(points3DAss, points, featurePointsGuess)
 
             for i in range(len(associatedPoints)):
                 # convert points to pixels
-                px = associatedPoints[i][0] / self.camera.pixelWidth
-                py = associatedPoints[i][1] / self.camera.pixelHeight
-                fpx = featurePointsGuess[i][0] / self.camera.pixelWidth
-                fpy = featurePointsGuess[i][1] / self.camera.pixelHeight
+                px = associatedPoints[i][0]
+                py = associatedPoints[i][1]
+                fpx = featurePointsGuess[i][0]
+                fpy = featurePointsGuess[i][1]
                 drawInfo(imgColor, (int(px), int(py)), str(i))
                 drawInfo(imgColor, (int(fpx), int(fpy)), str(i), color=(0, 0, 255))
                 cv.circle(imgColor, (int(px), int(py)), 2, (255, 0, 0), 3)

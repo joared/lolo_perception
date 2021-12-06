@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 
 from lolo_perception.feature_extraction import GradientFeatureExtractor, featureAssociation, drawInfo, ThresholdFeatureExtractor
 from lolo_perception.pose_estimation import DSPoseEstimator
-from lolo_perception.perception_utils import plotPosePoints, plotAxis, plotPoints, plotPoseInfo, plotPointsPixel
+from lolo_perception.perception_utils import plotPosePoints, plotAxis, plotPoints, plotPoseInfo
 from lolo_perception.perception_ros_utils import vectorToPose
 
 from scipy.spatial.transform import Rotation as R
@@ -69,17 +69,11 @@ class Perception:
         # Using only P (D=0), we should subscribe to the rectified image topic
         camera = Camera(cameraMatrix=np.array(msg.P, dtype=np.float32).reshape((3,4))[:, :3], 
                         distCoeffs=np.zeros((4,1), dtype=np.float32),
-                        resolution=(msg.height, msg.width), 
-                        pixelWidth=2.8e-6, 
-                        pixelHeight=2.8e-6, 
-                        hz=15)
+                        resolution=(msg.height, msg.width))
         # Using K and D, we should subscribe to the raw image topic
         _camera = Camera(cameraMatrix=np.array(msg.K, dtype=np.float32).reshape((3,3)), 
                         distCoeffs=np.array(msg.D, dtype=np.float32),
-                        resolution=(msg.height, msg.width), 
-                        pixelWidth=2.796875e-6, 
-                        pixelHeight=2.8055555555e-6, 
-                        hz=15)
+                        resolution=(msg.height, msg.width))
         self.camera = camera
 
     def imgCallback(self, msg):
@@ -124,8 +118,8 @@ class Perception:
                 covariance) = self.poseEstimator.update(
                                 self.featureModel.features, 
                                 associatedPoints, 
-                                np.array([[self.camera.pixelWidth*self.camera.pixelWidth*sigmaX*sigmaX, 0], 
-                                        [0, self.camera.pixelHeight*self.camera.pixelHeight*sigmaY*sigmaY]]),
+                                np.array([[sigmaX*sigmaX, 0], 
+                                        [0, sigmaY*sigmaY]]),
                                 estTranslationVector,
                                 estRotationVector)
 
@@ -148,14 +142,14 @@ class Perception:
             global uncertaintyEst
             uncertaintyEst.add(self.poseEstimator.translationVector, 
                                 self.poseEstimator.rotationVector, 
-                                self.camera.metersToUV(associatedPoints))
+                                associatedPoints)
 
             poseAvg, imageAvgs = uncertaintyEst.calcAverage()
 
             poseCov, imageCovs = uncertaintyEst.calcCovariance()
             print("mean image cov:", np.mean(imageCovs, axis=0))
 
-            plotPointsPixel(poseImg, imageAvgs, (255, 0, 255), radius=3)
+            plotPoints(poseImg, imageAvgs, (255, 0, 255), radius=3)
             pose = vectorToPose("lolo_camera",
                                 poseAvg[:3],
                                 poseAvg[3:],
@@ -194,7 +188,7 @@ class Perception:
                         self.camera, 
                         self.featureModel.features, 
                         color=(0, 0, 255))
-            plotPoints(poseImg, self.camera, associatedPoints, (255, 0, 0))
+            plotPoints(poseImg, associatedPoints, (255, 0, 0))
             plotPoseInfo(poseImg, 
                          self.poseEstimator.translationVector, 
                          self.poseEstimator.rotationVector)
@@ -271,7 +265,7 @@ if __name__ == '__main__':
     featureModel.features[0] *= 1
 
     uncertaintyEst = PoseAndImageUncertaintyEstimator(len(featureModel.features), 
-                                                      nSamples=1)
+                                                      nSamples=100)
 
     perception = Perception(None, featureModel)
     perception.run()
