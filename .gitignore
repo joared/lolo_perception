@@ -1,0 +1,6 @@
+*.pyc
+**/*__pycache__/
+/images_presentation
+/image_dataset
+/test_session_videos
+/rosbags

@@ -1,0 +1,26 @@
+image_width: 1920
+image_height: 1080
+camera_name: contour_1080p
+camera_matrix:
+  rows: 3
+  cols: 3
+  data: [1168.47103,    0.     ,  984.20482,
+            0.     , 1174.02217,  562.58081,
+            0.     ,    0.     ,    1.     ]
+camera_model: plumb_bob
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data: [-0.284025, 0.065078, 0.001067, -0.000964, 0.000000]
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data: [1., 0., 0.,
+         0., 1., 0.,
+         0., 0., 1.]
+projection_matrix:
+  rows: 3
+  cols: 4
+  data: [ 884.36572,    0.     ,  994.04928,    0.     ,
+            0.     , 1096.93066,  567.01791,    0.     ,
+            0.     ,    0.     ,    1.     ,    0.     ]
