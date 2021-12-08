@@ -1,5 +1,5 @@
 <launch>
-  <arg name="video_device" default="/dev/video2" />
+  <arg name="video_device" default="/dev/video0" />
   <arg name="camera_info_url" default="usb_camera_720p_8.yaml" />
   <node name="lolo_camera" pkg="usb_cam" type="usb_cam_node" output="screen" >
     <param name="video_device" value="$(arg video_device)" />

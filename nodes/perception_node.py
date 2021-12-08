@@ -111,8 +111,8 @@ class Perception:
         #                                  estRotationVec)
 
         if len(associatedPoints) == len(self.featureModel.features):
-            sigmaX = .12 # std of pixel in x
-            sigmaY = .22 # std of pixel in y
+            sigmaX = .45 # std of pixel in x
+            sigmaY = .45 # std of pixel in y
             (translationVector, 
                 rotationVector, 
                 covariance) = self.poseEstimator.update(
@@ -147,7 +147,10 @@ class Perception:
             poseAvg, imageAvgs = uncertaintyEst.calcAverage()
 
             poseCov, imageCovs = uncertaintyEst.calcCovariance()
-            print("mean image cov:", np.mean(imageCovs, axis=0))
+            np.set_printoptions(precision=3)
+            print(poseCov)
+            for i, imgCov in enumerate(imageCovs):
+                print("ImageCov {}: {}".format(i, imgCov))
 
             plotPoints(poseImg, imageAvgs, (255, 0, 255), radius=3)
             pose = vectorToPose("lolo_camera",
@@ -155,6 +158,9 @@ class Perception:
                                 poseAvg[3:],
                                 poseCov)
             self.poseAvgPublisher.publish(pose)
+
+            self.poseEstimator.translationVector = np.array(poseAvg[:3])
+            self.poseEstimator.rotationVector = np.array(poseAvg[3:])
             ############################
 
             if publishPose:
@@ -265,7 +271,7 @@ if __name__ == '__main__':
     featureModel.features[0] *= 1
 
     uncertaintyEst = PoseAndImageUncertaintyEstimator(len(featureModel.features), 
-                                                      nSamples=100)
+                                                      nSamples=500)
 
     perception = Perception(None, featureModel)
     perception.run()

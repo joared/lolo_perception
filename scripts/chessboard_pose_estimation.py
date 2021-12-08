@@ -7,7 +7,7 @@ import rospkg
 from sensor_msgs.msg import Image
 import numpy as np
 
-from perception_utils import plotPoseInfo
+from lolo_perception.perception_utils import plotPoseInfo
 
 def callback(msg):
     global image_msg
@@ -24,12 +24,10 @@ def draw(img, corners, imgpts):
 def readCameraMatrix(path):
     import yaml
     import os
-    path = os.path.join(rospkg.RosPack().get_path("perception"), path)
-    print(path)
+    path = os.path.join(rospkg.RosPack().get_path("lolo_perception"), path)
+
     with open(path, "r") as file:
         d = yaml.load(file)
-
-    print(d)
 
     P = np.array(d["projection_matrix"]["data"], 
                    dtype=np.float32).reshape((3,4))[:, :3]
@@ -57,23 +55,9 @@ def loop():
     criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 30, 0.001)
     objp = np.zeros((rows*columns,3), np.float32)
     objp[:,:2] = np.mgrid[0:columns,0:rows].T.reshape(-1,2)
-    axis = np.float32([[1,0,0], [0,1,0], [0,0,-1]]).reshape(-1,3)
+    axis = np.float32([[3,0,0], [0,3,0], [0,0,-3]]).reshape(-1,3)
 
-    print(objp)
-
-    mtx, dist = readCameraMatrix("camera_calibration_data/usb_camera_720p_8.yaml")
-
-    usePixelSize = True
-    #objp *= squareSize
-    #axis *= squareSize
-    if usePixelSize:
-        pw = 2.796875e-6
-        ph = 2.8055555555e-6
-        mtx[0, :] *= pw
-        mtx[1, :] *= ph
-        #mtx[2, :] *= squareSize
-        objp *= squareSize
-        axis *= squareSize
+    mtx, dist = readCameraMatrix("camera_calibration_data/usb_camera_720p_11.yaml")
 
     rate = rospy.Rate(20)
     while not rospy.is_shutdown():
@@ -83,39 +67,20 @@ def loop():
             except CvBridgeError as e:
                 print(e)
             else:
-                print("here!")
                 gray = cv.cvtColor(img,cv.COLOR_BGR2GRAY)
                 ret, corners = cv.findChessboardCorners(gray, (columns,rows),None)
                 if ret == True:
                     corners2 = cv.cornerSubPix(gray,corners,(11,11),(-1,-1),criteria)
                     # Find the rotation and translation vectors.
-                    featurePoints = corners2.copy()
-                    if usePixelSize:
-                        featurePoints = featurePoints.reshape(48, 2)
-                        featurePoints[:, 0] *= pw
-                        featurePoints[:, 1] *= ph
-
                     ret,rvecs, tvecs = cv.solvePnP(objp,
-                                                   featurePoints, 
+                                                   corners2, 
                                                    mtx, 
                                                    dist)
                     # project 3D points to image plane
                     imgpts, jac = cv.projectPoints(axis, rvecs, tvecs, mtx, dist)
-                    if usePixelSize:
-                        print(imgpts.shape)
-                        imgpts = imgpts.reshape(3, 2)
-
-                        print(imgpts.shape)
-                        imgpts[:, 0] /= pw
-                        imgpts[:, 1] /= ph
-                        imgpts.reshape(3, 1, 2)
 
                     img = draw(img, corners2, imgpts)
-
-                    if False and not usePixelSize:
-                        tvecs *= squareSize
-                    print(tvecs.shape)
-                    plotPoseInfo(img, tvecs[:, 0], rvecs[:, 0])
+                    plotPoseInfo(img, tvecs[:, 0]*squareSize, rvecs[:, 0])
                     cv.imshow('img',img)
                     k = cv.waitKey(1) & 0xFF
                         

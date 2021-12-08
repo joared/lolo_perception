@@ -82,11 +82,11 @@ def plotPoseInfo(img, translationVector, rotationVector):
     org = (org[0], org[1]+inc)
     cv.putText(img, "Z: {} {}".format(round(translationVector[2], 2), unit), org, cv.FONT_HERSHEY_SIMPLEX, 1, color=(0, 255, 0), thickness=2, lineType=cv.LINE_AA)
     org = (org[0], org[1]+inc)
-    cv.putText(img, "Yaw: {} deg".format(round(yaw, 1)), org, cv.FONT_HERSHEY_SIMPLEX, 1, color=(0, 255, 0), thickness=2, lineType=cv.LINE_AA)
+    cv.putText(img, "Yaw: {} deg".format(round(yaw, 2)), org, cv.FONT_HERSHEY_SIMPLEX, 1, color=(0, 255, 0), thickness=2, lineType=cv.LINE_AA)
     org = (org[0], org[1]+inc)
-    cv.putText(img, "Pitch: {} deg".format(round(pitch, 1)), org, cv.FONT_HERSHEY_SIMPLEX, 1, color=(0, 255, 0), thickness=2, lineType=cv.LINE_AA)
+    cv.putText(img, "Pitch: {} deg".format(round(pitch, 2)), org, cv.FONT_HERSHEY_SIMPLEX, 1, color=(0, 255, 0), thickness=2, lineType=cv.LINE_AA)
     org = (org[0], org[1]+inc)
-    cv.putText(img, "Roll: {} deg".format(round(roll, 1)), org, cv.FONT_HERSHEY_SIMPLEX, 1, color=(0, 255, 0), thickness=2, lineType=cv.LINE_AA)
+    cv.putText(img, "Roll: {} deg".format(round(roll, 2)), org, cv.FONT_HERSHEY_SIMPLEX, 1, color=(0, 255, 0), thickness=2, lineType=cv.LINE_AA)
 
 class PoseAndImageUncertaintyEstimator:
     """
@@ -120,6 +120,8 @@ class PoseAndImageUncertaintyEstimator:
         return poseCov, imageCovs
 
     def calcAverage(self):
+        # This only works for small differences in rotation and 
+        # when rotations are not near +-pi
         poseAvg = np.mean(self.poseVecs, axis=0)
         imageAvgs = []
         for points in self.associatedImagePoints:
