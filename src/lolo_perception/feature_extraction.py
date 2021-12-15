@@ -323,6 +323,14 @@ def contourRatio(cnt):
 
     return ratio
 
+def contoursMinAreaRemove(contours, minArea=3):
+    """Remove contours with area < minArea"""
+    contoursNew = []
+    for cnt in contours:
+        if cv.contourArea(cnt) >= minArea:
+            contoursNew.append(cnt)
+    return contoursNew
+
 def contourAreaDistanceFromMean(contours):
     areas = np.array([cv.contourArea(cnt) for cnt in contours])
     mean = np.mean(areas)
@@ -496,6 +504,7 @@ class ThresholdFeatureExtractor:
         #print(contoursNew.shape)
         #contoursNew = [cnt for d, cnt in sorted(zip(ds, contoursNew))]
         contoursNew.sort(key=contourRatio, reverse=True)
+        #contoursNew = contoursMinAreaRemove(contoursNew, minArea=7)
         #contoursNew = contoursNew[:self.nFeatures]
 
         # contours are sorted by ratio but using the initial shape, not the eroded one

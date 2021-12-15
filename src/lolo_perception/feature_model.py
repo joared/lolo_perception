@@ -40,6 +40,11 @@ smallPrototype5 = FeatureModel(polygons([0, 0.06],
                                         [False, True], 
                                         [-0.043, 0]))
 
+smallPrototypeSquare = FeatureModel(polygons([0.06], 
+                                        [4], 
+                                        [True], 
+                                        [0]))
+
 smallPrototype9 = FeatureModel(polygons([0, 0.06], 
                                         [1, 8], 
                                         [False, True], 
