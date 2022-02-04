@@ -4,63 +4,78 @@ from cv_bridge import CvBridge, CvBridgeError
 import roslib
 import rospy
 from sensor_msgs.msg import Image, CameraInfo
-from geometry_msgs.msg import PoseWithCovarianceStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped, Pose, PoseArray
 import os.path
 import glob
 import time
 import numpy as np
 import matplotlib.pyplot as plt
+import itertools
 
-from lolo_perception.feature_extraction import GradientFeatureExtractor, featureAssociation, drawInfo, ThresholdFeatureExtractor
+from lolo_perception.feature_extraction import contourCentroid, LightSourceTracker, LightSource, featureAssociation, regionOfInterest, ThresholdFeatureExtractorWithInitialization, AdaptiveThreshold2, AdaptiveThresholdPeak
 from lolo_perception.pose_estimation import DSPoseEstimator
-from lolo_perception.perception_utils import plotPosePoints, plotAxis, plotPoints, plotPoseInfo
-from lolo_perception.perception_ros_utils import vectorToPose
-
-from scipy.spatial.transform import Rotation as R
+from lolo_perception.reprojection_utils import calcPoseReprojectionRMSEThreshold
+from lolo_perception.perception_utils import projectPoints, reprojectionError, plotPoseImageInfo, plotPosePoints, plotAxis, plotPoints, plotPoseInfo, plotCrosshair, PoseAndImageUncertaintyEstimator
+from lolo_perception.perception_ros_utils import vectorToPose, lightSourcesToMsg
+from lolo_perception.camera_model import Camera
+from scipy.spatial.transform import Rotation as R, rotation
 
 
 class Perception:
     def __init__(self, camera, featureModel):
         self.camera = camera
-        camInfoSub = rospy.Subscriber("lolo_camera/camera_info", CameraInfo, self.getCameraCallback)
+        rospy.Subscriber("lolo_camera/camera_info", CameraInfo, self._getCameraCallback)
         self.camera = None
         while not rospy.is_shutdown() and self.camera is None:
             print("Waiting for camera info to be published")
             rospy.sleep(1)
 
         self.featureModel = featureModel
+        self.uncertaintyEst = PoseAndImageUncertaintyEstimator(len(featureModel.features), 
+                                                               nSamples=1)
 
-
-        #featureExtractor = ThresholdFeatureExtractor(featureModel=self.featureModel, camera=self.camera, p=0.02, erosionKernelSize=7, maxIter=10, useKernel=False)
-        self.featureExtractor = ThresholdFeatureExtractor(featureModel=self.featureModel, camera=self.camera, p=0.03, erosionKernelSize=5, maxIter=4, useKernel=False)
-        self.gradFeatureExtractor = GradientFeatureExtractor(featureModel=self.featureModel, camera=self.camera)
+        self.featureExtractor = ThresholdFeatureExtractorWithInitialization(featureModel=self.featureModel, 
+                                                                            camera=self.camera, 
+                                                                            p=0.03,
+                                                                            erosionKernelSize=5, 
+                                                                            maxIter=4, 
+                                                                            useKernel=False,
+                                                                            nInitImages=10)
+        
+        self.hatsFeatureExtractor = AdaptiveThreshold2(len(self.featureModel.features), 
+                                                       marginPercentage=0.01, 
+                                                       minArea=10, 
+                                                       minRatio=0.3,
+                                                       thresholdType=cv.THRESH_BINARY)
+        
+        self.peakFeatureExtractor = AdaptiveThresholdPeak(len(self.featureModel.features), kernelSize=11, p=0.95)
         
         self.poseEstimator = DSPoseEstimator(self.camera, 
+                                             self.featureModel,
                                              ignoreRoll=False, 
                                              ignorePitch=False, 
-                                             flag=cv.SOLVEPNP_ITERATIVE,
-                                             calcCovariance=True)
+                                             flag=cv.SOLVEPNP_ITERATIVE)
  
         self.imageMsg = None
         self.bridge = CvBridge()
-        self.imgSubsciber = rospy.Subscriber('lolo_camera/image_rect_color', Image, self.imgCallback)
+        self.imgSubsciber = rospy.Subscriber('lolo_camera/image_rect_color', Image, self._imgCallback)
         #self.imgSubsciber = rospy.Subscriber('lolo_camera/image_raw', Image, self.imgCallback)
 
         self.imgProcPublisher = rospy.Publisher('lolo_camera/image_processed', Image, queue_size=1)
+        self.imgProcDrawPublisher = rospy.Publisher('lolo_camera/image_processed_draw', Image, queue_size=1)
         self.imgPosePublisher = rospy.Publisher('lolo_camera/image_processed_pose', Image, queue_size=1)
-        
-        self.imgThresholdPublisher = rospy.Publisher('lolo_camera/image_processed_thresholded', Image, queue_size=1)
-        self.imgAdaOpenPublisher = rospy.Publisher('lolo_camera/image_processed_adaopen', Image, queue_size=1)
 
-        self.imgGradPublisher = rospy.Publisher('lolo_camera/image_processed_grad', Image, queue_size=1)
-        self.imgBinGradPublisher = rospy.Publisher('lolo_camera/image_processed_bin_grad', Image, queue_size=1)
-            
+        self.associatedImagePointsPublisher = rospy.Publisher('lolo_camera/associated_image_points', PoseArray, queue_size=1)
+
         self.posePublisher = rospy.Publisher('docking_station/pose', PoseWithCovarianceStamped, queue_size=1)
+        self.camPosePublisher = rospy.Publisher('lolo_camera/pose', PoseWithCovarianceStamped, queue_size=1)
         self.poseAvgPublisher = rospy.Publisher('docking_station/pose_average', PoseWithCovarianceStamped, queue_size=1)
+        self.camPoseAvgPublisher = rospy.Publisher('lolo_camera/pose_average', PoseWithCovarianceStamped, queue_size=1)
 
 
-    def getCameraCallback(self, msg):
-        from lolo_perception.camera_model import Camera
+        self.lsTrackers = []
+
+    def _getCameraCallback(self, msg):
         """
         Use either K and D or just P
         https://answers.ros.org/question/119506/what-does-projection-matrix-provided-by-the-calibration-represent/
@@ -76,153 +91,175 @@ class Perception:
                         resolution=(msg.height, msg.width))
         self.camera = camera
 
-    def imgCallback(self, msg):
+    def _imgCallback(self, msg):
         self.imageMsg = msg
+
+    def _roiMask(self, gray, estDSPose, scaleMargin):
+        featurePointsGuess = projectPoints(estDSPose.translationVector, 
+                                           estDSPose.rotationVector, 
+                                           self.camera, 
+                                           self.featureModel.features)
+
+        margin = max([ls.radius for ls in estDSPose.associatedLightSources])
+        margin *= scaleMargin
+        margin = max(int(10./720*gray.shape[0]), margin)
+        roiCnt = regionOfInterest(featurePointsGuess, wMargin=margin, hMargin=margin)
+        roiMask = np.zeros(gray.shape, np.int8)
+        roiMask = cv.drawContours(roiMask, [roiCnt], -1, (255), -1)
+        return roiMask, roiCnt
+
+    def _sortCandidates(self, candidates, maxAdditionalCandidates):
+        """
+        Sort the candidates so that probably candidates are considered first
+        maxAdditionalCandidates is to limit computation and might discard true lights
+        """
+        # true light are probably lower in the image (high y value)
+        #candidates.sort(key=lambda p: p[1], reverse=True)
+        # sort by areas
+        candidates.sort(key=lambda p: p.area, reverse=True)
+        nFeatures = len(self.featureModel.features)
+        candidates = candidates[:nFeatures+maxAdditionalCandidates]
+        
+        return candidates
 
     def update(self, 
                imgColor, 
-               estTranslationVector=None, 
-               estRotationVector=None, 
+               estDSPose=None, 
                publishPose=True, 
-               publishImages=False, 
-               plot=False):
+               publishImages=False):
 
         processedImg = imgColor.copy()
         poseImg = imgColor.copy()
-        #imgColor = imgColor.copy()
 
         gray = cv.cvtColor(imgColor, cv.COLOR_BGR2GRAY)
-        waterSurfaceMask = np.zeros(gray.shape, dtype=np.uint8)
-        surfaceLineRatio = 0#.45 # ratio 0-1, where 0 is the top of the image and 1 is the bottom
-        waterSurfaceMask[int(waterSurfaceMask.shape[0]*surfaceLineRatio):, :] = 1
 
-        gray = cv.bitwise_and(gray, gray, mask=waterSurfaceMask)
+        roiCnt = None
+        if estDSPose: # if translation exists, rotation should as well
+            # create a region of interest
+            roiMask, roiCnt = self._roiMask(gray, estDSPose, scaleMargin=2)
+            roiImg = cv.bitwise_and(gray, gray, mask=roiMask)
+            
 
-        #estTranslationVec = np.array([-0.3, 0.3, 1.5])
-        #estRotationVec = np.array([0., np.pi, 0.])
-        res, associatedPoints = self.featureExtractor(gray, 
-                                                      processedImg, 
-                                                      estTranslationVector, 
-                                                      estRotationVector)
+            if not self.lsTrackers:
+                for ls in estDSPose.associatedLightSources:
+                    self.lsTrackers.append(LightSourceTracker(ls.center, radius=ls.radius, maxPatchRadius=50, minPatchRadius=15, p=.97))
+            for lsTracker in self.lsTrackers:
+                lsTracker.update(gray, drawImg=processedImg)
+                if lsTracker.cnt is None:
+                    estDSPose = None
+                    
+            gray = roiImg
+        else:
+            # initialize with peak extractor
+            self.featureExtractor = self.peakFeatureExtractor
 
-        #resGrad, _ = gradFeatureExtractor(gray, 
-        #                                  processedImg, 
-        #                                  estTranslationVec, 
-        #                                  estRotationVec)
 
-        if len(associatedPoints) == len(self.featureModel.features):
-            sigmaX = .45 # std of pixel in x
-            sigmaY = .45 # std of pixel in y
-            (translationVector, 
-                rotationVector, 
-                covariance) = self.poseEstimator.update(
-                                self.featureModel.features, 
-                                associatedPoints, 
-                                np.array([[sigmaX*sigmaX, 0], 
-                                        [0, sigmaY*sigmaY]]),
-                                estTranslationVector,
-                                estRotationVector)
+        ###################################################################################################
+        """if estDSPose:
+            maxAdditionalCandidates = 0
+        else:
+            maxAdditionalCandidates = 6
+        res, candidates = self.featureExtractor(gray, maxAdditionalCandidates=maxAdditionalCandidates, drawImg=processedImg)
+        candidates = self._sortCandidates(candidates, maxAdditionalCandidates=6)
+        """
 
-            # show lights pose wrt to camera
-            rotMat = R.from_rotvec(rotationVector.transpose()).as_dcm()
-            transl = translationVector
+        ###################################################################################################
+        if estDSPose:
+            candidates = [LightSource(lsTracker.cnt) for lsTracker in self.lsTrackers]
+        else:
+            self.lsTrackers = []
+            maxAdditionalCandidates = 6 
+            res, candidates = self.featureExtractor(gray, maxAdditionalCandidates=maxAdditionalCandidates, drawImg=processedImg)
+            candidates = self._sortCandidates(candidates, maxAdditionalCandidates=maxAdditionalCandidates) 
 
-            # show camera pose wrt to lights
-            transl = np.matmul(rotMat.transpose(), -translationVector)
-            rotMat = rotMat.transpose()
+        ###################################################################################################
+        associatedLightSources = candidates
+        poseAquired = False
+        dsPose = None
+        if len(candidates) >= len(self.featureModel.features):
+            dsPose = self.poseEstimator.findBestPose(candidates, firstValid=True)
 
-            # convert to camera coordinates (x-rgiht, y-left, z-front)
-            #translation = np.matmul(csRef.rotation, transl)
-            #rotation = np.matmul(csRef.rotation, np.array(rotMat))
+            if dsPose:
+                if dsPose.rmse < dsPose.rmseMax:
+                    associatedLightSources = dsPose.associatedLightSources
+                    # Show 2D representation, affects frame rate
+                    #calcPoseReprojectionRMSEThreshold(dsPose.translationVector, 
+                    #                              dsPose.rotationVector, 
+                    #                              self.camera, 
+                    #                              self.featureModel, 
+                    #                              showImg=True)
+                    poseAquired = True
 
-            translation = transl
-            rotation = R.from_dcm(rotMat).as_rotvec()
+                    for ls in associatedLightSources:
+                        # change to hats if the lightsource is large enough
+                        if False and ls.area > self.hatsFeatureExtractor.minArea:
+                            self.featureExtractor = self.hatsFeatureExtractor
 
-            ############################
-            global uncertaintyEst
-            uncertaintyEst.add(self.poseEstimator.translationVector, 
-                                self.poseEstimator.rotationVector, 
-                                associatedPoints)
 
-            poseAvg, imageAvgs = uncertaintyEst.calcAverage()
+                rmseColor = (0,255,0) if poseAquired else (0,0,255)
+                cv.putText(poseImg, 
+                        "RMSE: {} < {}".format(round(dsPose.rmse, 2), round(dsPose.rmseMax, 2)), 
+                        (20, 200), 
+                        cv.FONT_HERSHEY_SIMPLEX, 
+                        1, 
+                        color=rmseColor, 
+                        thickness=2, 
+                        lineType=cv.LINE_AA)
+                cv.putText(poseImg, 
+                        "RMSE certainty: {}".format(round(1-dsPose.rmse/dsPose.rmseMax, 2)), 
+                        (20, 220), 
+                        cv.FONT_HERSHEY_SIMPLEX, 
+                        1, 
+                        color=rmseColor, 
+                        thickness=2, 
+                        lineType=cv.LINE_AA)
+                cv.putText(poseImg, 
+                        "HATS" if self.featureExtractor == self.hatsFeatureExtractor else "Peak", 
+                        (20, 240), 
+                        cv.FONT_HERSHEY_SIMPLEX, 
+                        1, 
+                        color=(255,0,0), 
+                        thickness=2, 
+                        lineType=cv.LINE_AA)
+            else:
+                print("Pose estimation failed")
+                
 
-            poseCov, imageCovs = uncertaintyEst.calcCovariance()
-            np.set_printoptions(precision=3)
-            print(poseCov)
-            for i, imgCov in enumerate(imageCovs):
-                print("ImageCov {}: {}".format(i, imgCov))
+            if publishPose and poseAquired:
+                self.posePublisher.publish(
+                    vectorToPose("lolo_camera", 
+                    dsPose.translationVector, 
+                    dsPose.rotationVector, 
+                    dsPose.covariance)
+                    )
+                self.camPosePublisher.publish(
+                    vectorToPose("docking_station", 
+                    dsPose.camTranslationVector, 
+                    dsPose.camRotationVector, 
+                    dsPose.camCovariance)
+                    )
+            if publishImages:
+                plotPoseImageInfo(poseImg,
+                                  dsPose,
+                                  self.camera,
+                                  self.featureModel,
+                                  poseAquired,
+                                  roiCnt)
 
-            plotPoints(poseImg, imageAvgs, (255, 0, 255), radius=3)
-            pose = vectorToPose("lolo_camera",
-                                poseAvg[:3],
-                                poseAvg[3:],
-                                poseCov)
-            self.poseAvgPublisher.publish(pose)
+                self.imgPosePublisher.publish(self.bridge.cv2_to_imgmsg(poseImg))
+                self.imgProcDrawPublisher.publish(self.bridge.cv2_to_imgmsg(processedImg))
+                self.imgProcPublisher.publish(self.bridge.cv2_to_imgmsg(self.featureExtractor.img))
 
-            self.poseEstimator.translationVector = np.array(poseAvg[:3])
-            self.poseEstimator.rotationVector = np.array(poseAvg[3:])
-            ############################
+        self.associatedImagePointsPublisher.publish(lightSourcesToMsg(associatedLightSources))
 
-            if publishPose:
-                pose = vectorToPose("lolo_camera", 
-                                    self.poseEstimator.translationVector, 
-                                    self.poseEstimator.rotationVector, 
-                                    self.poseEstimator.poseCov)
-                self.posePublisher.publish(pose)
+        return (dsPose,
+                poseAquired)
 
-        if False:
-            hist = cv.calcHist([gray], [0], None, [256], [0, 256])
-            histStart = 50
-            maxH = max(hist[histStart:])
-            hist = [v/maxH for v in hist[histStart:]]
-            plt.cla()
-            plt.xlim(0, 255)
-            plt.ylim(0, 1)
-            plt.plot(hist)
-            plt.pause(0.000001)
-
-        if publishImages or plot:
-            plotAxis(poseImg, 
-                    self.poseEstimator.translationVector, 
-                    self.poseEstimator.rotationVector, 
-                    self.camera, 
-                    self.featureModel.features, 
-                    self.featureModel.maxRad) # scaling for the axis shown
-            plotPosePoints(poseImg, 
-                        self.poseEstimator.translationVector, 
-                        self.poseEstimator.rotationVector, 
-                        self.camera, 
-                        self.featureModel.features, 
-                        color=(0, 0, 255))
-            plotPoints(poseImg, associatedPoints, (255, 0, 0))
-            plotPoseInfo(poseImg, 
-                         self.poseEstimator.translationVector, 
-                         self.poseEstimator.rotationVector)
-
-        if publishImages:
-            self.imgThresholdPublisher.publish(self.bridge.cv2_to_imgmsg(self.featureExtractor.pHold.img))
-            self.imgAdaOpenPublisher.publish(self.bridge.cv2_to_imgmsg(self.featureExtractor.adaOpen.img))
-            self.imgPosePublisher.publish(self.bridge.cv2_to_imgmsg(poseImg))
-            self.imgProcPublisher.publish(self.bridge.cv2_to_imgmsg(processedImg))
-            #self.imgGradPublisher.publish(self.bridge.cv2_to_imgmsg(resGrad))
-
-        if plot:
-            cv.imshow("threshold", self.featureExtractor.pHold.img)
-            cv.imshow("adaptive open", self.featureExtractor.adaOpen.img)
-            cv.imshow("pose", poseImg)
-            cv.imshow("processed image", processedImg)
-            cv.waitKey(0)
-
-        return (self.poseEstimator.translationVector, 
-                self.poseEstimator.rotationVector, 
-                self.poseEstimator.poseCov)
-
-    def run(self, publishPose=True, publishImages=True, plot=False):
+    def run(self, publishPose=True, publishImages=True):
         avgFrameRate = 0
         i = 0
         rate = rospy.Rate(30)
-        estTranslationVector = None
-        estRotationVector = None
+        estDSPose = None
         while not rospy.is_shutdown():
             if self.imageMsg:
                 tStart = time.time()
@@ -231,47 +268,39 @@ class Perception:
                 except CvBridgeError as e:
                     print(e)
                 else:
-                    
+                    self.imageMsg = None
+                    (dsPose,
+                     poseAquired) = self.update(imgColor, 
+                                                estDSPose=estDSPose, 
+                                                publishPose=publishPose, 
+                                                publishImages=publishImages)
 
-                    estTranslationVector = None # comment to use region of interest
-                    estRotationVector = None    # comment to use region of interest
-
-                    (estTranslationVector, 
-                     estRotationVector, 
-                     covariance) = self.update(
-                                    imgColor, 
-                                    estTranslationVector=estTranslationVector,
-                                    estRotationVector=estRotationVector, 
-                                    publishPose=publishPose, 
-                                    publishImages=publishImages, 
-                                    plot=plot)
+                    if not poseAquired:
+                        estDSPose = None
+                    else:
+                        estDSPose = dsPose
 
                     tElapsed = time.time() - tStart
                     hz = 1/tElapsed
                     i += 1
-                    avgFrameRate = (avgFrameRate*(i-1) + hz)/i
-                    print("Average frame rate: {}".format(avgFrameRate))
+                    avgFrameRate = hz#(avgFrameRate*(i-1) + hz)/i
+                    print("Frame rate: {}".format(avgFrameRate))
 
             rate.sleep()
 
 
 if __name__ == '__main__':
     from lolo_perception.camera_model import usbCamera480p, usbCamera720p, contourCamera1080p
-    from lolo_perception.feature_model import smallPrototype5, smallPrototype9, bigPrototype5, bigPrototype52, idealModel
-    from lolo_perception.perception_utils import PoseAndImageUncertaintyEstimator
+    from lolo_perception.feature_model import smallPrototype5, smallPrototypeSquare, smallPrototype9, bigPrototype5, bigPrototype52, idealModel
 
     rospy.init_node('perception_node')
 
-    featureModel = idealModel
-    featureModel = smallPrototype5
-    #featureModel = bigPrototype5
+    featureModel = bigPrototype5
     featureModel.features *= 1
     featureModel.maxRad *= 1
-    print(featureModel.features)
-    featureModel.features[0] *= 1
+    #featureModel.features[0] = np.array([0.06, 0, 0])
 
-    uncertaintyEst = PoseAndImageUncertaintyEstimator(len(featureModel.features), 
-                                                      nSamples=500)
+    print(featureModel.features)
 
     perception = Perception(None, featureModel)
     perception.run()

@@ -1,11 +1,12 @@
 <launch>
    <arg name="video_stream_provider" default="image_dataset/271121_5planar_1080p_short.MP4" />
+   <arg name="camera_info_url" default="contour.yaml" />
    <!-- launch video stream -->
    <include file="$(find video_stream_opencv)/launch/camera.launch" >
         <!-- node name and ros graph name -->
         <arg name="camera_name" value="lolo_camera" />
         <!-- means video device 0, /dev/video0 -->
-        <arg name="video_stream_provider" value="$(find perception)/$(arg video_stream_provider)" />
+        <arg name="video_stream_provider" value="$(find lolo_perception)/$(arg video_stream_provider)" />
         <!-- set camera fps to (if the device allows) -->
         <arg name="set_camera_fps" value="30"/>
         <!-- set buffer queue size of frame capturing to -->
@@ -16,7 +17,7 @@
         <arg name="frame_id" value="lolo_camera" />
         <!-- camera info loading, take care as it needs the "file:///" at the start , e.g.:
         "file:///$(find your_camera_package)/config/your_camera.yaml" -->
-        <arg name="camera_info_url" value="file://$(find perception)/camera_calibration_data/contour.yaml" />
+        <arg name="camera_info_url" value="file://$(find lolo_perception)/camera_calibration_data/$(arg camera_info_url)" />
         <!-- flip the image horizontally (mirror it) -->
         <arg name="flip_horizontal" value="false" />
         <!-- flip the image vertically -->
