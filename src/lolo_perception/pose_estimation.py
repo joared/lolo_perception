@@ -7,16 +7,144 @@ from mpl_toolkits import mplot3d
 from scipy.spatial.transform import Rotation as R, rotation
 from scipy.spatial.transform import Slerp
 import scipy
+from lolo_perception.perception_utils import reprojectionError
+from lolo_perception.feature_extraction import featureAssociation
+
+
+from lolo_perception.reprojection_utils import calcPoseReprojectionRMSEThreshold
+
+import itertools
+
+def calcPoseCovariance(camera, featureModel, translationVector, rotationVector, pixelCovariance):
+    _, jacobian = cv.projectPoints(featureModel.features, 
+                                   rotationVector.reshape((3, 1)), 
+                                   translationVector.reshape((3, 1)), 
+                                   camera.cameraMatrix, 
+                                   camera.distCoeffs)
+
+    rotJ = jacobian[:, :3]
+    transJ = jacobian[:, 3:6]
+    J = np.hstack((transJ, rotJ)) # reorder covariance as used in PoseWithCovarianceStamped
+
+    # How to rotate covariance: https://robotics.stackexchange.com/questions/2556/how-to-rotate-covariance
+
+    sigma = scipy.linalg.block_diag(*[pixelCovariance]*len(featureModel.features))
+    sigmaInv = np.linalg.inv(sigma)
+    try:
+        covariance = np.linalg.inv(np.matmul(np.matmul(J.transpose(), sigmaInv), J))
+    except np.linalg.LinAlgError as e:
+        print("Singular matrix")
+
+    return covariance
+
+class DSPose:
+    def __init__(self, 
+                 translationVector, 
+                 rotationVector, 
+                 camTranslationVector, 
+                 camRotationVector,
+                 associatedLightSources,
+                 camera,
+                 featureModel):
+
+        self.translationVector = translationVector
+        self.rotationVector = rotationVector
+        self._covariance = None
+        self.camTranslationVector = camTranslationVector
+        self.camRotationVector = camRotationVector
+        self._camCovariance = None # not used at the moment
+
+        self.associatedLightSources = associatedLightSources
+        self.camera = camera
+        self.featureModel = featureModel
+
+        self._rmse = None
+        self._rmseMax = None
+
+    @property
+    def rmse(self):
+        if self._rmse:
+            return self._rmse
+        else:
+            return self.calcRMSE()[0]
+
+    @property
+    def rmseMax(self):
+        if self._rmseMax:
+            return self._rmseMax
+        else:
+            return self.calcRMSE()[1]
+
+    @property
+    def covariance(self):
+        if self._covariance is not None:
+            return self._covariance
+        else:
+            return self.calcCovariance()
+
+    @property
+    def camCovariance(self):
+        if self._camCovariance is not None:
+            return self._camCovariance
+        else:
+            return np.zeros((6, 6))
+
+    def calcRMSE(self):
+        if self._rmse or self._rmseMax:
+            raise Exception("NONONO")
+
+        errs, rmse = reprojectionError(self.translationVector, 
+                                       self.rotationVector, 
+                                       self.camera, 
+                                       self.featureModel.features, 
+                                       np.array([ls.center for ls in self.associatedLightSources], dtype=np.float32))
+        rmseMaxModel = calcPoseReprojectionRMSEThreshold(self.translationVector, 
+                                                         self.rotationVector, 
+                                                         self.camera, 
+                                                         self.featureModel,
+                                                         showImg=False)
+
+        lightSourceReprojections = np.array([ls.radius for ls in self.associatedLightSources], dtype=np.float32)
+        rmseMaxLightsource = np.sqrt(np.sum(lightSourceReprojections**2)/len(self.associatedLightSources))
+
+        self._rmse = rmse
+        self._rmseMax = rmseMaxModel
+        #self.rmseMax += rmseMaxLightsource # light source rejection is unrealiable since large areas (noise) may not be rejected 
+        self._rmseMax += 1 # add 1 pixel for far distance detections
+        return self._rmse, self._rmseMax
+
+    def calcCovariance(self, pixelCovariance=None):
+        # AUV homing and docking for remote operations
+        # About covariance: https://manialabs.wordpress.com/2012/08/06/covariance-matrices-with-a-practical-example/
+        # Article: https://www.sciencedirect.com/science/article/pii/S0029801818301367
+        # Stack overflow: https://stackoverflow.com/questions/36618269/uncertainty-on-pose-estimate-when-minimizing-measurement-errors
+        #jacobian - 2*nPoints * 14
+        # jacobian - [rotation, translation, focal lengths, principal point, dist coeffs]
+
+        # TODO: is RMSE a godd approximation of the standard deviation? (same formula?)
+        if pixelCovariance is None:
+            sigmaX = self.rmse
+            sigmaY = self.rmse
+            pixelCovariance = np.array([[sigmaX**2, 0], [0, sigmaY**2]])
+
+        covariance = calcPoseCovariance(self.camera, 
+                                        self.featureModel, 
+                                        self.translationVector, 
+                                        self.rotationVector, 
+                                        pixelCovariance)
+
+        self._covariance = covariance
+
+        return self._covariance
 
 class DSPoseEstimator:
     #def __init__(self, auv, dockingStation, camera, featureModel):
     def __init__(self, 
                  camera, 
-                 featureModel=None,
+                 featureModel,
                  ignoreRoll=False, 
                  ignorePitch=False, 
-                 flag=cv.SOLVEPNP_ITERATIVE, 
-                 calcCovariance=True):
+                 flag=cv.SOLVEPNP_ITERATIVE):
 
         self.camera = camera
         self.featureModel = featureModel
@@ -26,68 +154,22 @@ class DSPoseEstimator:
         self.ignorePitch = ignorePitch
         
         self.flag = flag
-        self._calcCovariance = calcCovariance
 
-        # pose of docking station wrt camera
-        self.translationVector = np.zeros(3)
-        self.rotationVector = np.zeros(3)
-        self.poseCov = np.zeros((6, 6))
-
-        # pose of camera wrt to docking station
-        self.camTranslationVector = np.zeros(3)
-        self.camRotationVector = np.zeros(3)
-        self.camPoseCov = np.zeros((6, 6)) # rotation the same but translation is nonlinear
-
-    def calcCovariance(self, 
-                       featurePoints, 
-                       translationVector, 
-                       rotationVector, 
-                       pixelCovariance):
-        # AUV homing and docking for remote operations
-        # About covariance: https://manialabs.wordpress.com/2012/08/06/covariance-matrices-with-a-practical-example/
-        # Article: https://www.sciencedirect.com/science/article/pii/S0029801818301367
-        # Stack overflow: https://stackoverflow.com/questions/36618269/uncertainty-on-pose-estimate-when-minimizing-measurement-errors
-        #jacobian - 2*nPoints * 14
-        # jacobian - [rotation, translation, focal lengths, principal point, dist coeffs]
-
-        _, jacobian = cv.projectPoints(featurePoints, 
-                                        rotationVector.reshape((3, 1)), 
-                                        translationVector.reshape((3, 1)), 
-                                        self.camera.cameraMatrix, 
-                                        self.camera.distCoeffs)
-
-        rotJ = jacobian[:, :3]
-        transJ = jacobian[:, 3:6]
-        J = np.hstack((transJ, rotJ)) # reorder covariance as used in PoseWithCovarianceStamped
-
-        # How to rotate covariance: https://robotics.stackexchange.com/questions/2556/how-to-rotate-covariance
-
-        sigma = scipy.linalg.block_diag(*[pixelCovariance]*len(featurePoints))
-        sigmaInv = np.linalg.inv(sigma)
-        try:
-            poseCov = np.linalg.inv(np.matmul(np.matmul(J.transpose(), sigmaInv), J))
-        except np.linalg.LinAlgError as e:
-            print("Singular matrix")
-
-        return poseCov
-
-    def update(self, 
-               featurePoints, 
-               associatedPoints, 
-               pixelCovariance, 
-               estTranslationVec=None, 
-               estRotationVec=None):
+    def estimatePose(self, 
+                     associatedLightSources, 
+                     estTranslationVec=None, 
+                     estRotationVec=None):
         """
-        Assume that predict have been called just before this
-        featurePoints - points of the feature model [m]
-        associatedPoints - detected and associated points in the image [m]
+        featurePoints - points of the feature model
+        associatedPoints - detected and associated points in the image
         pointCovariance - uncertainty of the detected points
         """
+        associatedPoints = np.array([ls.center for ls in associatedLightSources], dtype=np.float32)
 
         if self.flag == cv.SOLVEPNP_EPNP:
             associatedPoints = associatedPoints.reshape((len(associatedPoints), 1, 2))
 
-        featurePoints = np.array(list(featurePoints[:, :3]))
+        featurePoints = np.array(list(self.featureModel.features[:, :3]))
         if estTranslationVec is not None:
             guessTrans = estTranslationVec.copy().reshape((3, 1))
             guessRot = estRotationVec.copy().reshape((3, 1))
@@ -102,7 +184,7 @@ class DSPoseEstimator:
                                                                     flags=cv.SOLVEPNP_ITERATIVE)
         else:
             guessTrans = np.array([[0.], [0.], [1]])
-            print("Guess trans", guessTrans)
+            #print("Guess trans", guessTrans)
             guessRot = np.array([[0.], [0.], [0.]])
             # On axis-angle: https://en.wikipedia.org/wiki/Axis%E2%80%93angle_representation#Relationship_to_other_representations
             success, rotationVector, translationVector = cv.solvePnP(featurePoints,
@@ -118,10 +200,10 @@ class DSPoseEstimator:
             print("Pose estimation failed")
             return 
 
-        self.translationVector = translationVector[:, 0]
-        self.rotationVector = rotationVector[:, 0]
+        translationVector = translationVector[:, 0]
+        rotationVector = rotationVector[:, 0]
         
-        ay, ax, az = R.from_rotvec(self.rotationVector).as_euler("YXZ")
+        ay, ax, az = R.from_rotvec(rotationVector).as_euler("YXZ")
         if self.ignorePitch:
             ax = 0
         if self.ignoreRoll:
@@ -129,22 +211,41 @@ class DSPoseEstimator:
         self.rotationVector = R.from_euler("YXZ", (ay, ax, az)).as_rotvec()
 
         rotMat = R.from_rotvec(self.rotationVector).as_dcm()
-        self.camTranslationVector = np.matmul(rotMat.transpose(), -self.translationVector)
-        self.camRotationVector = R.from_dcm(rotMat.transpose()).as_rotvec()
+        camTranslationVector = np.matmul(rotMat.transpose(), -translationVector)
+        camRotationVector = R.from_dcm(rotMat.transpose()).as_rotvec()
 
-        self.poseCov = np.zeros((6,6))
-        if self._calcCovariance:
-            self.poseCov = self.calcCovariance(featurePoints, 
-                                               self.translationVector, 
-                                               self.rotationVector, 
-                                               pixelCovariance)
+        return DSPose(translationVector, 
+                      rotationVector, 
+                      camTranslationVector,
+                      camRotationVector,
+                      associatedLightSources,
+                      self.camera,
+                      self.featureModel)
 
-        return (self.translationVector, 
-                self.rotationVector, 
-                self.poseCov,
-                self.camTranslationVector,
-                self.camRotationVector)
+    def findBestPose(self, lightCandidates, firstValid=False):
 
+        lightCandidatePermutations = list(itertools.combinations(lightCandidates, len(self.featureModel.features)))
+        features = self.featureModel.features.copy()
+        associatedPermutations = [featureAssociation(features, candidates)[0] for candidates in lightCandidatePermutations]
+        print("LENGTH", len(associatedPermutations))
+        poses = []
+        rmseRatios = []
+        for associtatedLights in associatedPermutations:
+            dsPose = self.estimatePose(associtatedLights, 
+                                       estTranslationVec=None, 
+                                       estRotationVec=None)
+            
+            if firstValid and dsPose.rmse < dsPose.rmseMax:
+                return dsPose
+
+            rmseRatios.append(float(dsPose.rmse)/dsPose.rmseMax)
+            poses.append(dsPose)
+
+        if rmseRatios:
+            bestIdx = np.argmin(rmseRatios)
+            bestPose = poses[bestIdx]
+
+            return bestPose
 
 if __name__ =="__main__":
     pass

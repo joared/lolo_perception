@@ -25,7 +25,7 @@ def polygons(rads, ns, shifts, zShifts):
 
 
 class FeatureModel:
-    def __init__(self, features, euler=(0, 0, 0)):
+    def __init__(self, features, euler=(0, 0, 0), uncertainty=None):
         self.features = features
         if self.features is not None:
             rotMat = R.from_euler("XYZ", euler).as_dcm()
@@ -33,7 +33,19 @@ class FeatureModel:
             self.features = self.features[:, :3].copy() # Don't need homogenious
 
         self.maxRad = max([np.linalg.norm(f) for f in self.features])
+        self.maxX = max([abs(f[0]) for f in self.features])
+        self.maxY = max([abs(f[1]) for f in self.features])
 
+        if uncertainty is not None:
+            self.uncertainty = uncertainty
+        else:
+            # default uncertainty setting of 3% of the max radius
+            defaultUncertaintyP = 0.03
+            self.uncertainty = self.maxRad*defaultUncertaintyP
+
+    def setUncertainty(self, uncertainty):
+        #
+        self.uncertainty = uncertainty
 
 smallPrototype5 = FeatureModel(polygons([0, 0.06], 
                                         [1, 4], 
@@ -56,7 +68,7 @@ bigPrototype5 = FeatureModel(np.array([[0, 0, -0.465],
                                        [0.33, 0.2575, 0], 
                                        [-0.33, 0.2575, 0]]))
 
-bigPrototype52 = FeatureModel(np.array([[0.04, -0.2575-0.05, 0], 
+bigPrototype52 = FeatureModel(np.array([[-0.04, -0.2575-0.05, 0], 
                                        [-0.33, -0.2575, 0], 
                                        [0.33, -0.2575, 0], 
                                        [0.33, 0.2575, 0], 
