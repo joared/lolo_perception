@@ -147,7 +147,7 @@ class Perception:
             # initialize with peak extractor
             self.featureExtractor = self.peakFeatureExtractor
 
-
+        # 
         ###################################################################################################
         
         res, candidates, roiCnt = self.featureExtractor(gray, maxAdditionalCandidates=maxAdditionalCandidates, estDSPose=estDSPose, drawImg=processedImg)
