@@ -5,6 +5,8 @@ Panels:
     Property Tree Widget:
       Expanded:
         - /Global Options1
+        - /TF1
+        - /TF1/Frames1
         - /Image1
         - /Image2
         - /PoseWithCovariance1
@@ -12,6 +14,7 @@ Panels:
         - /PoseWithCovariance1/Covariance1/Position1
         - /PoseWithCovariance1/Covariance1/Orientation1
         - /PoseWithCovariance2
+        - /PoseArray1
       Splitter Ratio: 0.5
     Tree Height: 378
   - Class: rviz/Selection
@@ -76,10 +79,9 @@ Visualization Manager:
       Show Names: true
       Tree:
         map:
-          docking_station:
-            {}
           lolo_camera:
-            {}
+            docking_station:
+              {}
       Update Interval: 0
       Value: true
     - Class: rviz/Image
@@ -178,6 +180,22 @@ Visualization Manager:
       Topic: /lolo_camera/pose
       Unreliable: false
       Value: true
+    - Alpha: 1
+      Arrow Length: 0.30000001192092896
+      Axes Length: 0.05000000074505806
+      Axes Radius: 0.009999999776482582
+      Class: rviz/PoseArray
+      Color: 255; 25; 0
+      Enabled: true
+      Head Length: 0.07000000029802322
+      Head Radius: 0.029999999329447746
+      Name: PoseArray
+      Shaft Length: 0.23000000417232513
+      Shaft Radius: 0.009999999776482582
+      Shape: Axes
+      Topic: /lights/poses
+      Unreliable: false
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -206,25 +224,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 2.610011339187622
+      Distance: 4.599731922149658
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0
-        Y: 0
-        Z: 0
+        X: -0.7800244092941284
+        Y: -0.8595549464225769
+        Z: 1.2468819618225098
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.9803980588912964
+      Pitch: 0.3853982090950012
       Target Frame: rear_axle
       Value: Orbit (rviz)
-      Yaw: 4.580403804779053
+      Yaw: 0.022218722850084305
     Saved: ~
 Window Geometry:
   Displays:

@@ -1,3 +1,4 @@
+from matplotlib.colors import LightSource
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
@@ -25,37 +26,51 @@ def polygons(rads, ns, shifts, zShifts):
 
 
 class FeatureModel:
-    def __init__(self, features, euler=(0, 0, 0), uncertainty=None):
-        self.features = features
-        if self.features is not None:
-            rotMat = R.from_euler("XYZ", euler).as_dcm()
-            self.features = np.matmul(rotMat, self.features[:, :3].transpose()).transpose()
-            self.features = self.features[:, :3].copy() # Don't need homogenious
 
+    # default light source placement uncertainty percentage (percentage of max radius)
+    DEFAULT_PLACEMENT_UNCERTAINTY_P = 0.01
+
+    # default light source detection tolerance percentage (percentage of max radius)
+    DEFAULT_DETECTION_TOLERANCE_P = 0.02
+
+    def __init__(self, features, euler=(0, 0, 0), placementUncertainty=None, detectionTolerance=None):
+        self.features = features
+        rotMat = R.from_euler("XYZ", euler).as_dcm()
+        self.features = np.matmul(rotMat, self.features[:, :3].transpose()).transpose()
+        self.features = self.features[:, :3].copy() # Don't need homogenious
+
+        self.nFeatures = len(self.features)
         self.maxRad = max([np.linalg.norm(f) for f in self.features])
         self.maxX = max([abs(f[0]) for f in self.features])
         self.maxY = max([abs(f[1]) for f in self.features])
 
-        if uncertainty is not None:
-            self.uncertainty = uncertainty
-        else:
-            # default uncertainty setting of 3% of the max radius
-            defaultUncertaintyP = 0.03
-            self.uncertainty = self.maxRad*defaultUncertaintyP
+        self.placementUncertainty = placementUncertainty
+        if placementUncertainty is None:
+            print("FeatureModel WARNING: placement uncertainty not specified, using default")
+            self.placementUncertainty = self.maxRad*self.DEFAULT_PLACEMENT_UNCERTAINTY_P
 
-    def setUncertainty(self, uncertainty):
-        #
-        self.uncertainty = uncertainty
+        self.detectionTolerance = detectionTolerance
+        if detectionTolerance is None:
+            print("FeatureModel WARNING: detection tolerance not specified, using default")
+            self.detectionTolerance = self.maxRad*self.DEFAULT_DETECTION_TOLERANCE_P
+
+        # This uncertainty is used to calculate the maximum allowed reprojection error RMSE
+        # when estimating a pose from detected light sources
+        self.uncertainty = self.placementUncertainty + self.detectionTolerance
 
 smallPrototype5 = FeatureModel(polygons([0, 0.06], 
                                         [1, 4], 
                                         [False, True], 
-                                        [-0.043, 0]))
+                                        [-0.043, 0]),
+                                        placementUncertainty=.0012,
+                                        detectionTolerance=0.0006)
 
 smallPrototypeSquare = FeatureModel(polygons([0.06], 
                                         [4], 
                                         [True], 
-                                        [0]))
+                                        [0]),
+                                        placementUncertainty=.0012,
+                                        detectionTolerance=0.0006)
 
 smallPrototype9 = FeatureModel(polygons([0, 0.06], 
                                         [1, 8], 

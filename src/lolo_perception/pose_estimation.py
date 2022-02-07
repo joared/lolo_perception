@@ -7,13 +7,11 @@ from mpl_toolkits import mplot3d
 from scipy.spatial.transform import Rotation as R, rotation
 from scipy.spatial.transform import Slerp
 import scipy
-from lolo_perception.perception_utils import reprojectionError
+from lolo_perception.perception_utils import projectPoints, reprojectionError
 from lolo_perception.feature_extraction import featureAssociation
 
 
 from lolo_perception.reprojection_utils import calcPoseReprojectionRMSEThreshold
-
-import itertools
 
 def calcPoseCovariance(camera, featureModel, translationVector, rotationVector, pixelCovariance):
     _, jacobian = cv.projectPoints(featureModel.features, 
@@ -50,9 +48,12 @@ class DSPose:
         self.translationVector = translationVector
         self.rotationVector = rotationVector
         self._covariance = None
+        self.yaw, self.pitch, self.roll = R.from_rotvec(self.rotationVector).as_euler("YXZ")
+
         self.camTranslationVector = camTranslationVector
         self.camRotationVector = camRotationVector
         self._camCovariance = None # not used at the moment
+        #self.camYaw, self.camPitch, self.camRoll = R.from_rotvec(self.camRotationVector).as_euler("YXZ") # not used
 
         self.associatedLightSources = associatedLightSources
         self.camera = camera
@@ -88,6 +89,12 @@ class DSPose:
             return self._camCovariance
         else:
             return np.zeros((6, 6))
+
+    def reProject(self):
+        return projectPoints(self.translationVector, 
+                             self.rotationVector, 
+                             self.camera, 
+                             self.featureModel.features)
 
     def calcRMSE(self):
         if self._rmse or self._rmseMax:
@@ -222,15 +229,11 @@ class DSPoseEstimator:
                       self.camera,
                       self.featureModel)
 
-    def findBestPose(self, lightCandidates, firstValid=False):
+    def findBestPose(self, associatedLightSourcePermutations, firstValid=False):
 
-        lightCandidatePermutations = list(itertools.combinations(lightCandidates, len(self.featureModel.features)))
-        features = self.featureModel.features.copy()
-        associatedPermutations = [featureAssociation(features, candidates)[0] for candidates in lightCandidatePermutations]
-        print("LENGTH", len(associatedPermutations))
         poses = []
         rmseRatios = []
-        for associtatedLights in associatedPermutations:
+        for associtatedLights in associatedLightSourcePermutations:
             dsPose = self.estimatePose(associtatedLights, 
                                        estTranslationVec=None, 
                                        estRotationVec=None)
@@ -238,13 +241,13 @@ class DSPoseEstimator:
             if firstValid and dsPose.rmse < dsPose.rmseMax:
                 return dsPose
 
+
             rmseRatios.append(float(dsPose.rmse)/dsPose.rmseMax)
             poses.append(dsPose)
 
         if rmseRatios:
             bestIdx = np.argmin(rmseRatios)
             bestPose = poses[bestIdx]
-
             return bestPose
 
 if __name__ =="__main__":

@@ -9,7 +9,7 @@ import yaml
 import os
 import rospkg
 
-def vectorToPose(frameID, translationVector, rotationVector, covariance):
+def vectorToPose(frameID, translationVector, rotationVector, covariance, timeStamp=None):
     rotMat = R.from_rotvec(rotationVector).as_dcm()
     rotMatHom = np.hstack((rotMat, np.zeros((3, 1))))
     rotMatHom = np.vstack((rotMatHom, np.array([0, 0, 0, 1])))
@@ -17,7 +17,7 @@ def vectorToPose(frameID, translationVector, rotationVector, covariance):
 
     p = PoseWithCovarianceStamped()
     p.header.frame_id = frameID
-    p.header.stamp = rospy.Time.now()
+    p.header.stamp = timeStamp if timeStamp else rospy.Time.now()
     (p.pose.pose.position.x, 
      p.pose.pose.position.y, 
      p.pose.pose.position.z) = (translationVector[0], 
@@ -28,11 +28,11 @@ def vectorToPose(frameID, translationVector, rotationVector, covariance):
 
     return p
 
-def vectorToTransform(frameID, childFrameID, translationVector, rotationVector):
+def vectorToTransform(frameID, childFrameID, translationVector, rotationVector, timeStamp=None):
     global posePublisher, transformPublisher
 
     t = TransformStamped()
-    t.header.stamp = rospy.Time.now()
+    t.header.stamp = timeStamp if timeStamp else rospy.Time.now()
     t.header.frame_id = frameID
     t.child_frame_id = childFrameID
     t.transform.translation.x = translationVector[0]
@@ -63,9 +63,9 @@ def poseToVector(pose):
 
     return translationVector, rotationVector
 
-def lightSourcesToMsg(lightSources):
+def lightSourcesToMsg(lightSources, timeStamp=None):
     poseArray = PoseArray()
-    poseArray.header.stamp = rospy.Time.now()
+    poseArray.header.stamp = timeStamp if timeStamp else rospy.Time.now()
     poseArray.header.frame_id = "lolo_camera/image_plane"
     for ls in lightSources:
         pose = Pose()
@@ -76,11 +76,11 @@ def lightSourcesToMsg(lightSources):
 
     return poseArray
 
-def featurePointsToMsg(frameId, featurePoints):
+def featurePointsToMsg(frameId, featurePoints, timeStamp=None):
     pArray = PoseArray()
     #pArrayNoised = PoseArray()
     pArray.header.frame_id = frameId
-    pArray.header.stamp = rospy.Time.now()
+    pArray.header.stamp = timeStamp if timeStamp else rospy.Time.now()
     for p in featurePoints:
         pose = Pose()
         pose.position.x = p[0]

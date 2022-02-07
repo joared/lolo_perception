@@ -7,16 +7,24 @@ def plotPoseImageInfo(poseImg,
                       camera,
                       featureModel,
                       poseAquired,
+                      validRange,
                       roiCnt=None):
     if poseAquired:
+        axisColor = None
+        roiColor = (0, 255, 0)
+        if not validRange:
+            axisColor = (0, 0, 255)
+            roiColor = (0, 0, 255)
         if roiCnt is not None:
-            cv.drawContours(poseImg, [roiCnt], -1, (0, 255, 0), 3)
+            cv.drawContours(poseImg, [roiCnt], -1, roiColor, 3)
+
         plotAxis(poseImg, 
                 dsPose.translationVector, 
                 dsPose.rotationVector, 
                 camera, 
                 featureModel.features, 
                 featureModel.maxRad, # scaling for the axis shown
+                color=axisColor,
                 thickness=5) 
         
     plotPosePoints(poseImg, 
