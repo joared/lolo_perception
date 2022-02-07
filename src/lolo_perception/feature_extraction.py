@@ -1585,13 +1585,21 @@ class AdaptiveThreshold2:
         
         return candidates
 
-    def process(self, gray, maxAdditionalCandidates=0, drawImg=None):
+    def process(self, gray, maxAdditionalCandidates=0, estDSPose=None, roiMargin=None, drawImg=None):
         """
         maxAdditionalCandidates not used
         """
+        roiCnt = None
+        if estDSPose:
+            featurePointsGuess = estDSPose.reProject()
+            (x, y, w, h), roiCnt = regionOfInterest(featurePointsGuess, wMargin=roiMargin, hMargin=roiMargin)
+            roiMask = np.zeros(gray.shape, dtype=np.uint8)
+            cv.drawContours(roiMask, [roiCnt], 0, (255,255,255), -1)
+            gray = cv.bitwise_and(gray, gray, mask=roiMask)
+
         self.threshold = np.max(gray)
 
-        upper = 300
+        upper = 256
 
         img = cv.GaussianBlur(gray.copy(), (3,3),0)
 
@@ -1635,7 +1643,7 @@ class AdaptiveThreshold2:
 
         candidates = [LightSource(cnt, self.threshold) for cnt in candidates]
         candidates = self._sortLightSources(candidates, maxAdditionalCandidates)
-        return self.img, candidates
+        return self.img, candidates, roiCnt
 
 
 class AdaptiveThresholdPeak:
@@ -1659,7 +1667,7 @@ class AdaptiveThresholdPeak:
         
         return candidates
 
-    def process(self, gray, maxAdditionalCandidates=0, estDSPose=None, drawImg=None):
+    def process(self, gray, maxAdditionalCandidates=0, estDSPose=None, roiMargin=None, drawImg=None):
 
         grayOrig = gray.copy()
         #gray = cv.GaussianBlur(gray.copy(), (3,3),0)
@@ -1670,8 +1678,7 @@ class AdaptiveThresholdPeak:
         peakMargin = 3
         if estDSPose:
             featurePointsGuess = estDSPose.reProject()
-            margin = 100
-            (x, y, w, h), roiCnt = regionOfInterest(featurePointsGuess, wMargin=margin, hMargin=margin)
+            (x, y, w, h), roiCnt = regionOfInterest(featurePointsGuess, wMargin=roiMargin, hMargin=roiMargin)
             x = max(0, x)
             x = min(gray.shape[1]-1, x)
             y = max(0, y)
@@ -1683,11 +1690,6 @@ class AdaptiveThresholdPeak:
             minIntensity = min([ls.intensity for ls in estDSPose.associatedLightSources])
             minIntensity = 0.8*minIntensity
 
-            minLightSourceRadius = min([ls.radius for ls in estDSPose.associatedLightSources])
-            if minLightSourceRadius < 3:
-                minLightSourceRadius = 0
-            else:
-                minLightSourceRadius = 0.8*minLightSourceRadius
             # local max that are below 80% of the mean intensity of the previous light sources are discarded
             _, gray = cv.threshold(gray, minIntensity, 256, cv.THRESH_TOZERO)
 
@@ -1699,7 +1701,7 @@ class AdaptiveThresholdPeak:
             peakContours) = findNPeaks(gray, 
                                     kernel=self.kernel, 
                                     p=self.p, 
-                                    n=self.nFeatures+maxAdditionalCandidates, 
+                                    n=self.nFeatures+maxAdditionalCandidates,
                                     margin=peakMargin,
                                     offset=offset,
                                     drawImg=drawImg)
@@ -1707,69 +1709,15 @@ class AdaptiveThresholdPeak:
                             
         candidates = [LightSource(cnt, grayOrig[pc[1], pc[0]]) for pc, cnt in zip(peakCenters, peakContours)]
 
-        if minLightSourceRadius:
-            for ls in candidates:
-                if ls.radius < minLightSourceRadius:
-                    candidates.remove(ls)
-
         candidates = self._sortLightSources(candidates, maxAdditionalCandidates)
 
         if drawImg is not None:
             for ls in candidates:
                 cv.circle(drawImg, ls.center, int(round(ls.radius)), (255,0,255), 2)
+
         self.img = peakDilationImg
 
         return drawImg, candidates, roiCnt
-
-
-class NewFeatureExtractor:
-    def __init__(self, nFeatures, p):
-        pass
-
-    def __call__(self, imgColor):
-        gray = cv.cvtColor(imgColor, cv.COLOR_BGR2GRAY)
-        if not self.lsTrackers:
-            for ls in estDSPose.associatedLightSources:
-                self.lsTrackers.append(LightSourceTracker(ls.center, radius=ls.radius, maxPatchRadius=50, minPatchRadius=15, p=.95))
-        for lsTracker in self.lsTrackers:
-            lsTracker.update(gray)
-                
-
-        #res, assPoints = self._thresholdFeatureExt(gray, imgColor, estTranslationVec, estRotationVec)
-        #candidates = []
-        #self.candidateLightSources.insert(0, candidates)
-        #self.candidateLightSources = self.candidateLightSources[:self.nInitImages]
-
-        colors = [(255, 0, 0),
-                  (0, 255, 0),
-                  (0, 0, 255),
-                  (255, 0, 255),
-                  (255, 255, 0)]
-
-        for assPoints in self.candidateLightSources:
-            for color, p in zip(colors, assPoints):
-                plotPoints(self.img, [p], color=color)
-
-
-        self.imgThresholdPublisher.publish(self.bridge.cv2_to_imgmsg(thresholdedImg))
-        #self.imgAdaOpenPublisher.publish(self.bridge.cv2_to_imgmsg())
-        self.imgProcPublisher.publish(self.bridge.cv2_to_imgmsg(processedImg))
             
 if __name__ == '__main__':
-    nFeatures = 4
-    plt.figure()
-
-    featureExtractor = ThresholdFeatureExtractor(featureModel=self.featureModel, camera=self.camera, p=0.01, erosionKernelSize=5, maxIter=3, useKernel=False)
-    cap = cv.VideoCapture(2)
-    while True:
-        _, imgColor = cap.read()
-        gray = cv.cvtColor(imgColor, cv.COLOR_BGR2GRAY)
-
-        hist = cv.calcHist([gray], [0], None, [256], [0, 256])
-        plt.cla()
-        plt.plot(hist)
-        #res, points = extract_features_thres(imgColor.copy(), nFeatures)
-        #res3, points = extract_features_kmeans(imgColor.copy(), nFeatures)
-        #cv.imshow("gray", res1)
-        plt.pause(0.1)
-        cv.waitKey(100)
+    pass

@@ -1,15 +1,18 @@
 <launch>
-  <arg name="video_device" default="-1" />
+  <arg name="video_device" default="-1" /> <!--Use video device online-->
+  <arg name="solo" default="1" /> <!--Run the perception node stand alone, publishing a static transform between map and lolo_camera-->
+  <arg name="feature_model" default="big" />
 
   <include file="$(find lolo_perception)/launch/usb_cam.launch" if="$(eval arg('video_device') != -1)">
     <arg name="video_device" value="$(arg video_device)"/>
   </include> 
 
   <node name="perception_node" pkg="lolo_perception" type="perception_node.py" output="screen" >
+    <param name="feature_model" value="$(arg feature_model)"/>
   </node>
 
   <!--node pkg="tf" type="static_transform_publisher" name="docking_station_link" args="0 0.5 1 -1.571 0 -1.571 map docking_station 100" /-->
-  <node pkg="tf" type="static_transform_publisher" name="lolo_camera_link" args="0 0 1 1.571 0 -1.571 map lolo_camera 100" />
+  <node pkg="tf" type="static_transform_publisher" name="lolo_camera_link" args="0 0 1 1.571 0 -1.571 map lolo_camera 100" if="$(eval arg('solo') == -1)"/>
 
   <node type="rviz" name="rviz" pkg="rviz" args="-d $(find lolo_perception)/rviz/lolo.rviz" />
 

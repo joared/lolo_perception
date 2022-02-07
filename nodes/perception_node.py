@@ -1,25 +1,20 @@
 #!/usr/bin/env python
-from sqlite3 import Timestamp
 import cv2 as cv
 from cv_bridge import CvBridge, CvBridgeError
-import roslib
+#import roslib
 import rospy
 import tf.msg
 from sensor_msgs.msg import Image, CameraInfo
-from geometry_msgs.msg import PoseWithCovarianceStamped, Pose, PoseArray
+from geometry_msgs.msg import PoseWithCovarianceStamped, PoseArray
 import time
 import numpy as np
-import matplotlib.pyplot as plt
 import itertools
 
-from lolo_perception.feature_extraction import contourCentroid, LightSourceTracker, LightSource, featureAssociation, regionOfInterest, ThresholdFeatureExtractorWithInitialization, AdaptiveThreshold2, AdaptiveThresholdPeak
+from lolo_perception.feature_extraction import featureAssociation, AdaptiveThreshold2, AdaptiveThresholdPeak
 from lolo_perception.pose_estimation import DSPoseEstimator
-from lolo_perception.reprojection_utils import calcPoseReprojectionRMSEThreshold
-from lolo_perception.perception_utils import projectPoints, reprojectionError, plotPoseImageInfo, plotPosePoints, plotAxis, plotPoints, plotPoseInfo, plotCrosshair, PoseAndImageUncertaintyEstimator
+from lolo_perception.perception_utils import plotPoseImageInfo
 from lolo_perception.perception_ros_utils import vectorToPose, vectorToTransform, lightSourcesToMsg, featurePointsToMsg
 from lolo_perception.camera_model import Camera
-from scipy.spatial.transform import Rotation as R, rotation
-
 
 class Perception:
     def __init__(self, featureModel):
@@ -30,53 +25,64 @@ class Perception:
             rospy.sleep(1)
 
         self.featureModel = featureModel
-        self.uncertaintyEst = PoseAndImageUncertaintyEstimator(len(featureModel.features), 
-                                                               nSamples=1)
-
-        self.featureExtractor = ThresholdFeatureExtractorWithInitialization(featureModel=self.featureModel, 
-                                                                            camera=self.camera, 
-                                                                            p=0.03,
-                                                                            erosionKernelSize=5, 
-                                                                            maxIter=4, 
-                                                                            useKernel=False,
-                                                                            nInitImages=10)
         
+        # Use HATS when light sources are "large"
+        # This feature extractor sorts candidates based on area
         self.hatsFeatureExtractor = AdaptiveThreshold2(len(self.featureModel.features), 
                                                        marginPercentage=0.01, 
                                                        minArea=10, 
-                                                       minRatio=0.3,
+                                                       minRatio=0.2,
                                                        thresholdType=cv.THRESH_BINARY)
         
-        self.peakFeatureExtractor = AdaptiveThresholdPeak(len(self.featureModel.features), kernelSize=11, p=0.97)
+        # Use local peak finding to initialize and when light sources are small
+        # This feature extractor sorts candidates based on intensity and then area
+        self.peakFeatureExtractor = AdaptiveThresholdPeak(len(self.featureModel.features), 
+                                                          kernelSize=11, 
+                                                          p=0.97)
         
+        self.featureExtractor = self.peakFeatureExtractor
+
+        # max additional light source candidates that will be considered by 
+        # the feature extractor.
+        # 6 gives a minimum frame rate of about 0.3 when all 
+        # permutations of candidates are iterated over
+        self.maxAdditionalCandidates = 6
+
+        # margin of the region of interest when pose has been aquired
+        self.roiMargin = 50
+
+        # Pose estimator that calculates poses from detected light sources
         self.poseEstimator = DSPoseEstimator(self.camera, 
                                              self.featureModel,
                                              ignoreRoll=False, 
                                              ignorePitch=False, 
                                              flag=cv.SOLVEPNP_ITERATIVE)
 
-        self.invalidOrientationRange = [np.radians(35), np.radians(30), np.radians(15)] # [yawMinMax, pitchMinMax, rollMinMax] reject poses that have unlikely orientation
+        # valid orientation range [yawMinMax, pitchMinMax, rollMinMax]. Currently not used to disregard
+        # invalid poses, but the axis and region of interest will be shown in red when a pose has 
+        # an orientation within the valid range 
+        self.validOrientationRange = [np.radians(35), np.radians(30), np.radians(15)]
  
         self.imageMsg = None
         self.bridge = CvBridge()
         self.imgSubsciber = rospy.Subscriber('lolo_camera/image_rect_color', Image, self._imgCallback)
-        #self.imgSubsciber = rospy.Subscriber('lolo_camera/image_raw', Image, self.imgCallback)
 
+        # publish some images for visualization
         self.imgProcPublisher = rospy.Publisher('lolo_camera/image_processed', Image, queue_size=1)
         self.imgProcDrawPublisher = rospy.Publisher('lolo_camera/image_processed_draw', Image, queue_size=1)
         self.imgPosePublisher = rospy.Publisher('lolo_camera/image_processed_pose', Image, queue_size=1)
 
+        # publish associated light source image points as a PoseArray
         self.associatedImagePointsPublisher = rospy.Publisher('lolo_camera/associated_image_points', PoseArray, queue_size=1)
 
+        # publish estimated pose
         self.posePublisher = rospy.Publisher('docking_station/pose', PoseWithCovarianceStamped, queue_size=1)
-        self.camPosePublisher = rospy.Publisher('lolo_camera/pose', PoseWithCovarianceStamped, queue_size=1)
-        self.poseAvgPublisher = rospy.Publisher('docking_station/pose_average', PoseWithCovarianceStamped, queue_size=1)
-        self.camPoseAvgPublisher = rospy.Publisher('lolo_camera/pose_average', PoseWithCovarianceStamped, queue_size=1)
 
+        # publish transform of estimated pose
         self.transformPublisher = rospy.Publisher("/tf", tf.msg.tfMessage, queue_size=1)
-        self.featurePosesPublisher = rospy.Publisher('lights/poses', PoseArray, queue_size=1)
 
-        self.lsTrackers = []
+        # publish placement of the light sources as a PoseArray (published in the docking_station frame)
+        self.featurePosesPublisher = rospy.Publisher('lights/poses', PoseArray, queue_size=1)
 
     def _getCameraCallback(self, msg):
         """
@@ -89,146 +95,79 @@ class Perception:
                         distCoeffs=np.zeros((4,1), dtype=np.float32),
                         resolution=(msg.height, msg.width))
         # Using K and D, we should subscribe to the raw image topic
-        _camera = Camera(cameraMatrix=np.array(msg.K, dtype=np.float32).reshape((3,3)), 
-                        distCoeffs=np.array(msg.D, dtype=np.float32),
-                        resolution=(msg.height, msg.width))
+        #_camera = Camera(cameraMatrix=np.array(msg.K, dtype=np.float32).reshape((3,3)), 
+        #                distCoeffs=np.array(msg.D, dtype=np.float32),
+        #                resolution=(msg.height, msg.width))
         self.camera = camera
 
     def _imgCallback(self, msg):
         self.imageMsg = msg
 
-    def _sortCandidates(self, candidates, maxAdditionalCandidates):
-        """
-        Sort the candidates so that probably candidates are considered first
-        maxAdditionalCandidates is to limit computation and might discard true lights
-        """
-        # true light are probably lower in the image (high y value)
-        #candidates.sort(key=lambda p: p[1], reverse=True)
-        # sort by areas
-        candidates.sort(key=lambda p: p.area, reverse=True)
-        nFeatures = len(self.featureModel.features)
-        candidates = candidates[:nFeatures+maxAdditionalCandidates]
-        
-        return candidates
-
     def update(self, 
                imgColor, 
                estDSPose=None, 
                publishPose=True, 
-               publishImages=False):
+               publishImages=True):
 
+        # information about contours extracted from the feature extractor is plotted in this image
         processedImg = imgColor.copy()
+        
+        # pose information and ROI is plotted in this image
         poseImg = imgColor.copy()
 
+        # gray image to be processed
         gray = cv.cvtColor(imgColor, cv.COLOR_BGR2GRAY)
 
+        # ROI contour
         roiCnt = None
-        maxAdditionalCandidatesInit = 6
-        maxAdditionalCandidates = maxAdditionalCandidatesInit
-        associationRadius = 100
-        if estDSPose:
-            # create a region of interest
-            #maxAdditionalCandidates = maxAdditionalCandidatesInit*self.featureModel.nFeatures
-            #roiMask, roiCnt = self._roiMask(gray, estDSPose, associationRadius=associationRadius)
-            #roiImg = cv.bitwise_and(gray, gray, mask=roiMask)
-            
 
-            #if not self.lsTrackers:
-            #    for ls in estDSPose.associatedLightSources:
-            #        self.lsTrackers.append(LightSourceTracker(ls.center, radius=ls.radius, maxPatchRadius=50, minPatchRadius=15, p=.97))
-            #for lsTracker in self.lsTrackers:
-            #    lsTracker.update(gray, drawImg=processedImg)
-            #    if lsTracker.cnt is None:
-            #        estDSPose = None
-                    
-            #gray = roiImg
-            pass
-        else:
-            # initialize with peak extractor
+        if not estDSPose:
+            # if we are not given an estimated pose, we initialize
             self.featureExtractor = self.peakFeatureExtractor
-
-
-        ###################################################################################################
-        
-        res, candidates, roiCnt = self.featureExtractor(gray, maxAdditionalCandidates=maxAdditionalCandidates, estDSPose=estDSPose, drawImg=processedImg)
-
-        if estDSPose:
-            guess = estDSPose.reProject()
-            associatedLightSourcesLs = [[] for _ in range(len(self.featureModel.features))]
-            for g, assLs in zip(guess, associatedLightSourcesLs):
-                bestAssociationLlightSource = None
-                bestAssociationDist = np.inf
-                for ls in candidates:
-                    dist = np.linalg.norm([g[0]-ls.center[0], g[1]-ls.center[1]])
-                    if dist < associationRadius:
-                        assLs.append(ls)
-                        #if dist < bestAssociationDist:
-                        #    bestAssociationLlightSource = ls
-                        #    bestAssociationDist = dist
-                            
-                #if bestAssociationLlightSource is not None:
-                #    assLs.append(bestAssociationLlightSource)
-
-                cv.circle(poseImg, (int(round(g[0])), int(round(g[1]))), associationRadius, (255,0,0), 1)
-
-            for i in range(len(associatedLightSourcesLs)):
-                if not associatedLightSourcesLs[i]:
-                    print("Association failed while pose aquired")
-                    candidates = candidates[:self.featureModel.nFeatures+maxAdditionalCandidatesInit]
-                    # Association failed, at least one light source was not detected
-                    estDSPose = None
-                    break
-                else:
-                    associatedLightSourcesLs[i] = associatedLightSourcesLs[i][:maxAdditionalCandidatesInit]
-
-        ###################################################################################################
-        """if estDSPose:
-            candidates = [LightSource(lsTracker.cnt) for lsTracker in self.lsTrackers]
         else:
-            self.lsTrackers = []
-            maxAdditionalCandidates = 6 
-            res, candidates = self.featureExtractor(gray, maxAdditionalCandidates=maxAdditionalCandidates, drawImg=processedImg)
-            candidates = self._sortCandidates(candidates, maxAdditionalCandidates=maxAdditionalCandidates) 
-        """
-        ###################################################################################################
-        associatedLightSources = candidates
+            if all([ls.area > self.hatsFeatureExtractor.minArea for ls in estDSPose.associatedLightSources]):
+                # change to hats
+                self.featureExtractor = self.hatsFeatureExtractor
+        
+        # extract light source candidates from image
+        _, candidates, roiCnt = self.featureExtractor(gray, 
+                                                      maxAdditionalCandidates=self.maxAdditionalCandidates, 
+                                                      estDSPose=estDSPose,
+                                                      roiMargin=self.roiMargin, 
+                                                      drawImg=processedImg)
+
+        # return if pose has been aquired
         poseAquired = False
+        # estimated pose
         dsPose = None
+        # associated light sources (in the image) for the estimated pose
+        associatedLightSources = None
+
         timeStamp = rospy.Time.now()
         if len(candidates) >= len(self.featureModel.features):
-            
-            if estDSPose:
-                associatedPermutations = list(itertools.product(*associatedLightSourcesLs))
-                print("N permutations pose aquired first: {}".format(len(associatedPermutations)))
-                for i, perm in enumerate(associatedPermutations):
-                    for ls in perm:
-                        if perm.count(ls) > 1:
-                            del associatedPermutations[i]
-                            break
-                print("N permutations pose aquired after: {}".format(len(associatedPermutations)))
-                dsPose = self.poseEstimator.findBestPose(associatedPermutations, firstValid=True)
+
+            lightCandidatePermutations = list(itertools.combinations(candidates, len(self.featureModel.features)))
+            associatedPermutations = [featureAssociation(self.featureModel.features, candidates)[0] for candidates in lightCandidatePermutations]
                 
+            # findBestPose finds poses based on reprojection RMSE
+            # the featureModel specifies the placementUncertainty and detectionTolerance
+            # which determines the maximum allowed reprojection RMSE
+            if estDSPose and self.featureExtractor == self.hatsFeatureExtractor:
+                # if we use HATS, presumably we are close and we want to find the best pose
+                dsPose = self.poseEstimator.findBestPose(associatedPermutations, firstValid=False)
             else:
-                lightCandidatePermutations = list(itertools.combinations(candidates, len(self.featureModel.features)))
-                associatedPermutations = [featureAssociation(self.featureModel.features, candidates)[0] for candidates in lightCandidatePermutations]
-                print("N permutations: {}".format(len(associatedPermutations)))
-                
+                # if we use local peak, presumably we are far away, 
+                # and the first valid pose is good enough in most cases 
                 dsPose = self.poseEstimator.findBestPose(associatedPermutations, firstValid=True)
 
             if dsPose:
                 if dsPose.rmse < dsPose.rmseMax:
                     associatedLightSources = dsPose.associatedLightSources
-                    # Show 2D representation, affects frame rate
-                    #calcPoseReprojectionRMSEThreshold(dsPose.translationVector, 
-                    #                              dsPose.rotationVector, 
-                    #                              self.camera, 
-                    #                              self.featureModel, 
-                    #                              showImg=True)
                     poseAquired = True
 
-                    if False and all([ls.area > self.hatsFeatureExtractor.minArea for ls in associatedLightSources]):
-                        # change to hats
-                        self.featureExtractor = self.hatsFeatureExtractor
+                    #if all([ls.area > self.hatsFeatureExtractor.minArea for ls in associatedLightSources]):
+                    #    # change to hats
+                    #    self.featureExtractor = self.hatsFeatureExtractor
 
 
                 rmseColor = (0,255,0) if poseAquired else (0,0,255)
@@ -259,16 +198,21 @@ class Perception:
             else:
                 print("Pose estimation failed")
                 
+            # publish pose if pose has been aquired
             if publishPose and poseAquired:
+                # publish transform
                 dsTransform = vectorToTransform("lolo_camera", 
                                                 "docking_station", 
                                                 dsPose.translationVector, 
                                                 dsPose.rotationVector, 
                                                 timeStamp=timeStamp)
                 self.transformPublisher.publish(tf.msg.tfMessage([dsTransform]))
+
+                # Publish placement of the light sources as a PoseArray (published in the docking_station frame)
                 pArray = featurePointsToMsg("docking_station", self.featureModel.features, timeStamp=timeStamp)
                 self.featurePosesPublisher.publish(pArray)
                 
+                # publish estimated pose
                 self.posePublisher.publish(
                     vectorToPose("lolo_camera", 
                     dsPose.translationVector, 
@@ -276,19 +220,16 @@ class Perception:
                     dsPose.covariance,
                     timeStamp=timeStamp)
                     )
-                """
-                self.camPosePublisher.publish(
-                    vectorToPose("docking_station", 
-                    dsPose.camTranslationVector, 
-                    dsPose.camRotationVector, 
-                    dsPose.camCovariance)
-                    )
-                """
+
             if publishImages:
-                validRange = -self.invalidOrientationRange[0] < dsPose.yaw < self.invalidOrientationRange[0]
-                validRange = validRange and -self.invalidOrientationRange[1] < dsPose.pitch < self.invalidOrientationRange[1]
-                validRange = validRange and -self.invalidOrientationRange[2] < dsPose.roll < self.invalidOrientationRange[2]
+
+                # poses with orientation outside the valid range are not disregarded
+                # but are shown with RED axis and ROI in poseImg
+                validRange = -self.validOrientationRange[0] < dsPose.yaw < self.validOrientationRange[0]
+                validRange = validRange and -self.validOrientationRange[1] < dsPose.pitch < self.validOrientationRange[1]
+                validRange = validRange and -self.validOrientationRange[2] < dsPose.roll < self.validOrientationRange[2]
                 
+                # plots pose axis, ROI, light sources etc.  
                 plotPoseImageInfo(poseImg,
                                   dsPose,
                                   self.camera,
@@ -297,19 +238,28 @@ class Perception:
                                   validRange,
                                   roiCnt)
 
+                # publish the images
                 self.imgPosePublisher.publish(self.bridge.cv2_to_imgmsg(poseImg))
                 self.imgProcDrawPublisher.publish(self.bridge.cv2_to_imgmsg(processedImg))
                 self.imgProcPublisher.publish(self.bridge.cv2_to_imgmsg(self.featureExtractor.img))
 
-        self.associatedImagePointsPublisher.publish(lightSourcesToMsg(associatedLightSources, timeStamp=timeStamp))
+        if associatedLightSources:
+            # if the light source candidates have been associated, we pusblish the associated candidates
+            self.associatedImagePointsPublisher.publish(lightSourcesToMsg(associatedLightSources, timeStamp=timeStamp))
+        else:
+            # otherwise we publish all candidates
+            self.associatedImagePointsPublisher.publish(lightSourcesToMsg(candidates, timeStamp=timeStamp))
 
         return (dsPose,
                 poseAquired)
 
     def run(self, publishPose=True, publishImages=True):
-        avgFrameRate = 0
-        i = 0
         rate = rospy.Rate(30)
+
+        # currently estimated docking station pose
+        # send the pose as an argument in update
+        # for the feature extraction to consider only a region of interest
+        # near the estimated pose
         estDSPose = None
         while not rospy.is_shutdown():
             if self.imageMsg:
@@ -333,23 +283,23 @@ class Perception:
 
                     tElapsed = time.time() - tStart
                     hz = 1/tElapsed
-                    i += 1
-                    avgFrameRate = hz#(avgFrameRate*(i-1) + hz)/i
-                    print("Frame rate: {}".format(avgFrameRate))
+                    print("Frame rate: {}".format(hz))
 
             rate.sleep()
 
 
 if __name__ == '__main__':
     from lolo_perception.camera_model import usbCamera480p, usbCamera720p, contourCamera1080p
-    from lolo_perception.feature_model import smallPrototype5, smallPrototypeSquare, smallPrototype9, bigPrototype5, bigPrototype52, idealModel
+    from lolo_perception.feature_model import smallPrototype5, bigPrototype5
 
     rospy.init_node('perception_node')
 
-    featureModel = smallPrototype5
-    featureModel.features *= 1
-    featureModel.maxRad *= 1
-    #featureModel.features[0] = np.array([0.06, 0, 0])
+    featureModels = {"small": smallPrototype5,
+                     "big": bigPrototype5}
+
+    featureModelStr = rospy.get_param("~feature_model")
+
+    featureModel = featureModels[featureModelStr]
 
     print(featureModel.features)
 
