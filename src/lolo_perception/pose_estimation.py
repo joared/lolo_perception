@@ -50,6 +50,8 @@ class DSPose:
         self._covariance = None
         self.yaw, self.pitch, self.roll = R.from_rotvec(self.rotationVector).as_euler("YXZ")
 
+        self._validOrientation = () # yaw, pitch, roll
+
         self.camTranslationVector = camTranslationVector
         self.camRotationVector = camRotationVector
         self._camCovariance = None # not used at the moment
@@ -130,8 +132,11 @@ class DSPose:
 
         # TODO: is RMSE a godd approximation of the standard deviation? (same formula?)
         if pixelCovariance is None:
-            sigmaX = self.rmse
-            sigmaY = self.rmse
+            # TODO: rmse or rmseMax?? I think rmseMax makes more sense 
+            #sigmaX = self.rmse
+            #sigmaY = self.rmse
+            sigmaX = self.rmseMax
+            sigmaY = self.rmseMax
             pixelCovariance = np.array([[sigmaX**2, 0], [0, sigmaY**2]])
 
         covariance = calcPoseCovariance(self.camera, 
@@ -144,6 +149,18 @@ class DSPose:
 
         return self._covariance
 
+    def validOrientation(self, yawRange, pitchRange, rollRange):
+        if self._validOrientation:
+            return self._validOrientation
+
+        validYaw = -yawRange <= self.yaw <= yawRange
+        validPitch = -pitchRange <= self.pitch <= pitchRange
+        validRoll = -rollRange <= self.roll <= rollRange
+
+        self._validOrientation = (validYaw, validPitch, validRoll)
+        
+        return self._validOrientation
+        
 class DSPoseEstimator:
     #def __init__(self, auv, dockingStation, camera, featureModel):
     def __init__(self, 

@@ -7,12 +7,16 @@ def plotPoseImageInfo(poseImg,
                       camera,
                       featureModel,
                       poseAquired,
-                      validRange,
+                      validOrientationRange,
                       roiCnt=None):
+
+    validYaw, validPitch, validRoll = dsPose.validOrientation(*validOrientationRange)
+    validOrientation = validYaw and validPitch and validRoll
+
     if poseAquired:
         axisColor = None
         roiColor = (0, 255, 0)
-        if not validRange:
+        if not validOrientation:
             axisColor = (0, 0, 255)
             roiColor = (0, 0, 255)
         if roiCnt is not None:
@@ -27,6 +31,13 @@ def plotPoseImageInfo(poseImg,
                 color=axisColor,
                 thickness=5) 
         
+    plotPoseInfo(poseImg, 
+                 dsPose.translationVector, 
+                 dsPose.rotationVector,
+                 yawColor=(0,255,0) if validYaw else (0,0,255),
+                 pitchColor=(0,255,0) if validPitch else (0,0,255),
+                 rollColor=(0,255,0) if validRoll else (0,0,255))
+
     plotPosePoints(poseImg, 
                 dsPose.translationVector, 
                 dsPose.rotationVector, 
@@ -34,7 +45,6 @@ def plotPoseImageInfo(poseImg,
                 featureModel.features, 
                 color=(0, 0, 255))
     plotPoints(poseImg, [ls.center for ls in dsPose.associatedLightSources], (255, 0, 0), radius=5)
-    plotPoseInfo(poseImg, dsPose.translationVector, dsPose.rotationVector)
 
     plotCrosshair(poseImg, camera)
 
@@ -109,7 +119,7 @@ def projectPoints(translationVector, rotationVector, camera, objPoints):
     projPoints = np.array([p[0] for p in projPoints])
     return projPoints
 
-def plotPoseInfo(img, translationVector, rotationVector):
+def plotPoseInfo(img, translationVector, rotationVector, yawColor=(0,255,0), pitchColor=(0,255,0), rollColor=(0,255,0)):
     distance = np.linalg.norm(translationVector)
     yaw, pitch, roll = R.from_rotvec(rotationVector).as_euler("YXZ")
     yaw, pitch, roll = np.rad2deg(yaw), np.rad2deg(pitch), np.rad2deg(roll)
@@ -133,11 +143,11 @@ def plotPoseInfo(img, translationVector, rotationVector):
     org = (org[0], org[1]+inc)
     cv.putText(img, "Z: {} {}".format(round(translationVector[2], 2), unit), org, cv.FONT_HERSHEY_SIMPLEX, 1, color=(0, 255, 0), thickness=2, lineType=cv.LINE_AA)
     org = (org[0], org[1]+inc)
-    cv.putText(img, "Yaw: {} deg".format(round(yaw, 2)), org, cv.FONT_HERSHEY_SIMPLEX, 1, color=(0, 255, 0), thickness=2, lineType=cv.LINE_AA)
+    cv.putText(img, "Yaw: {} deg".format(round(yaw, 2)), org, cv.FONT_HERSHEY_SIMPLEX, 1, color=yawColor, thickness=2, lineType=cv.LINE_AA)
     org = (org[0], org[1]+inc)
-    cv.putText(img, "Pitch: {} deg".format(round(pitch, 2)), org, cv.FONT_HERSHEY_SIMPLEX, 1, color=(0, 255, 0), thickness=2, lineType=cv.LINE_AA)
+    cv.putText(img, "Pitch: {} deg".format(round(pitch, 2)), org, cv.FONT_HERSHEY_SIMPLEX, 1, color=pitchColor, thickness=2, lineType=cv.LINE_AA)
     org = (org[0], org[1]+inc)
-    cv.putText(img, "Roll: {} deg".format(round(roll, 2)), org, cv.FONT_HERSHEY_SIMPLEX, 1, color=(0, 255, 0), thickness=2, lineType=cv.LINE_AA)
+    cv.putText(img, "Roll: {} deg".format(round(roll, 2)), org, cv.FONT_HERSHEY_SIMPLEX, 1, color=rollColor, thickness=2, lineType=cv.LINE_AA)
 
 
 def plotCrosshair(img, camera, color=(0, 0, 255)):

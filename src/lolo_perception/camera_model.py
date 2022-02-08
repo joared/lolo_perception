@@ -4,32 +4,35 @@ import cv2 as cv
 
 class Camera:
     # https://stackoverflow.com/questions/11140163/plotting-a-3d-cube-a-sphere-and-a-vector-in-matplotlib
-    def __init__(self, cameraMatrix, distCoeffs, resolution=None):
-        self.cameraMatrixPixel = cameraMatrix
-        self._cameraMatrix = cameraMatrix.copy()
+    def __init__(self, cameraMatrix, distCoeffs, projectionMatrix=None, resolution=None):
+        self.cameraMatrix = cameraMatrix
         
         self.distCoeffs = distCoeffs
         self.resolution = resolution # maybe change resolution to be (width, height) instead of (height, width)
 
-        if resolution is not None:
-            h, w = self.resolution
-            P, roi = cv.getOptimalNewCameraMatrix(self.cameraMatrix, 
-                                                self.distCoeffs, 
-                                                (w,h), 
-                                                0, 
-                                                (w,h))
+        self.projectionMatrix = projectionMatrix
+        self.roi = None
+        if projectionMatrix is None:
+            if resolution is not None:
+                h, w = self.resolution
+                P, roi = cv.getOptimalNewCameraMatrix(self.cameraMatrix, 
+                                                    self.distCoeffs, 
+                                                    (w,h), 
+                                                    0, 
+                                                    (w,h))
 
-            self.projectionMatrix = P
-            self.roi = roi
-        else:
-            self.projectionMatrix = np.eye(3)
-            self.roi = None
+                self.projectionMatrix = P
+                self.roi = roi
+            else:
+                self.projectionMatrix = self.cameraMatrix
 
-    @property
-    def cameraMatrix(self):
-        return self._cameraMatrix.copy()
+        # image_proc is using this to undistort image
+        #cv.initUndistortRectifyMap(	self.cameraMatrix, self.distCoeffs, None, self.newCameraMatrix, size, m1type[, map1[, map2]]	)
+        #cv.remap
+
 
     def undistortImage(self, img):
+        # currently only used in image_analyze_node.py
         imgRect = cv.undistort(img, self.cameraMatrix, self.distCoeffs, None, self.projectionMatrix)
         if self.roi is not None:
             x, y, w, h = self.roi
@@ -38,6 +41,7 @@ class Camera:
 
 
 # this camera matrix is wrong, should use the projection matrix instead since images are already rectified
+"""
 usbCamera480p = Camera(cameraMatrix=np.array([[812.2540283203125,   0,    		    329.864062734141 ],
                                          [   0,               814.7816162109375, 239.0201541966089], 
                                          [   0,     		     0,   		       1             ]], dtype=np.float32), 
@@ -55,7 +59,7 @@ usbCamera720p = Camera(cameraMatrix=np.array([[1607.87793,    0.     ,  649.1824
                                               [   0.     ,    0.     ,    1.     ]], dtype=np.float32), 
                         distCoeffs=np.zeros((4,1), dtype=np.float32),
                         resolution=(720, 1280))
-
+"""
 if __name__ == "__main__":
     pass
     

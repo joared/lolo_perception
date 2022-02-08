@@ -1597,11 +1597,10 @@ class AdaptiveThreshold2:
             cv.drawContours(roiMask, [roiCnt], 0, (255,255,255), -1)
             gray = cv.bitwise_and(gray, gray, mask=roiMask)
 
-        self.threshold = np.max(gray)
-
         upper = 256
 
         img = cv.GaussianBlur(gray.copy(), (3,3),0)
+        self.threshold = np.max(img)
 
         ret, imgTemp = cv.threshold(img, self.threshold, upper, self.thresholdType)
         _, contours, hier = cv.findContours(imgTemp, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)

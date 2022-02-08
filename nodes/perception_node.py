@@ -18,7 +18,7 @@ from lolo_perception.camera_model import Camera
 
 class Perception:
     def __init__(self, featureModel):
-        rospy.Subscriber("lolo_camera/camera_info", CameraInfo, self._getCameraCallback)
+        self.cameraInfoSub = rospy.Subscriber("lolo_camera/camera_info", CameraInfo, self._getCameraCallback)
         self.camera = None
         while not rospy.is_shutdown() and self.camera is None:
             print("Waiting for camera info to be published")
@@ -100,6 +100,9 @@ class Perception:
         #                resolution=(msg.height, msg.width))
         self.camera = camera
 
+        # We only want one message
+        self.cameraInfoSub.unregister()
+
     def _imgCallback(self, msg):
         self.imageMsg = msg
 
@@ -165,11 +168,6 @@ class Perception:
                     associatedLightSources = dsPose.associatedLightSources
                     poseAquired = True
 
-                    #if all([ls.area > self.hatsFeatureExtractor.minArea for ls in associatedLightSources]):
-                    #    # change to hats
-                    #    self.featureExtractor = self.hatsFeatureExtractor
-
-
                 rmseColor = (0,255,0) if poseAquired else (0,0,255)
                 cv.putText(poseImg, 
                         "RMSE: {} < {}".format(round(dsPose.rmse, 2), round(dsPose.rmseMax, 2)), 
@@ -221,27 +219,21 @@ class Perception:
                     timeStamp=timeStamp)
                     )
 
-            if publishImages:
 
-                # poses with orientation outside the valid range are not disregarded
-                # but are shown with RED axis and ROI in poseImg
-                validRange = -self.validOrientationRange[0] < dsPose.yaw < self.validOrientationRange[0]
-                validRange = validRange and -self.validOrientationRange[1] < dsPose.pitch < self.validOrientationRange[1]
-                validRange = validRange and -self.validOrientationRange[2] < dsPose.roll < self.validOrientationRange[2]
-                
+        if publishImages:
+            self.imgProcDrawPublisher.publish(self.bridge.cv2_to_imgmsg(processedImg))
+            self.imgProcPublisher.publish(self.bridge.cv2_to_imgmsg(self.featureExtractor.img))
+            if dsPose:
                 # plots pose axis, ROI, light sources etc.  
                 plotPoseImageInfo(poseImg,
-                                  dsPose,
-                                  self.camera,
-                                  self.featureModel,
-                                  poseAquired,
-                                  validRange,
-                                  roiCnt)
+                                    dsPose,
+                                    self.camera,
+                                    self.featureModel,
+                                    poseAquired,
+                                    self.validOrientationRange,
+                                    roiCnt)
 
-                # publish the images
                 self.imgPosePublisher.publish(self.bridge.cv2_to_imgmsg(poseImg))
-                self.imgProcDrawPublisher.publish(self.bridge.cv2_to_imgmsg(processedImg))
-                self.imgProcPublisher.publish(self.bridge.cv2_to_imgmsg(self.featureExtractor.img))
 
         if associatedLightSources:
             # if the light source candidates have been associated, we pusblish the associated candidates
@@ -289,7 +281,6 @@ class Perception:
 
 
 if __name__ == '__main__':
-    from lolo_perception.camera_model import usbCamera480p, usbCamera720p, contourCamera1080p
     from lolo_perception.feature_model import smallPrototype5, bigPrototype5
 
     rospy.init_node('perception_node')
