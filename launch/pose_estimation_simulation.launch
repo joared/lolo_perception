@@ -1,7 +1,11 @@
 <launch>
   <arg name="video_device" default="/dev/video2" />
+  <arg name="feature_model_yaml" default="big_prototype_5.yaml" />
+  <arg name="camera_yaml" default="usb_camera_720p_8.yaml" />
 
   <node name="pose_simulation" pkg="lolo_perception" type="pose_estimation_simulation_v2.py" output="screen" >
+    <param name="feature_model_yaml" value="$(arg feature_model_yaml)"/>
+    <param name="camera_yaml" value="$(arg camera_yaml)"/>
   </node>
 
   <node pkg="tf" type="static_transform_publisher" name="camera_link_1" args="0 0.5 1 -1.571 0 -1.571 map camera1 100" />

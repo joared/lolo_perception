@@ -1,6 +1,7 @@
-from matplotlib.colors import LightSource
 import numpy as np
+from numpy import place
 from scipy.spatial.transform import Rotation as R
+import yaml
 
 def polygon(rad, n, shift=False, zShift=0):
     """
@@ -33,7 +34,8 @@ class FeatureModel:
     # default light source detection tolerance percentage (percentage of max radius)
     DEFAULT_DETECTION_TOLERANCE_P = 0.02
 
-    def __init__(self, features, euler=(0, 0, 0), placementUncertainty=None, detectionTolerance=None):
+    def __init__(self, name, features, placementUncertainty=0, detectionTolerance=0, euler=(0, 0, 0)):
+        self.name = name
         self.features = features
         rotMat = R.from_euler("XYZ", euler).as_dcm()
         self.features = np.matmul(rotMat, self.features[:, :3].transpose()).transpose()
@@ -45,12 +47,12 @@ class FeatureModel:
         self.maxY = max([abs(f[1]) for f in self.features])
 
         self.placementUncertainty = placementUncertainty
-        if placementUncertainty is None:
+        if placementUncertainty == 0:
             print("FeatureModel WARNING: placement uncertainty not specified, using default")
             self.placementUncertainty = self.maxRad*self.DEFAULT_PLACEMENT_UNCERTAINTY_P
 
         self.detectionTolerance = detectionTolerance
-        if detectionTolerance is None:
+        if detectionTolerance == 0:
             print("FeatureModel WARNING: detection tolerance not specified, using default")
             self.detectionTolerance = self.maxRad*self.DEFAULT_DETECTION_TOLERANCE_P
 
@@ -58,51 +60,42 @@ class FeatureModel:
         # when estimating a pose from detected light sources
         self.uncertainty = self.placementUncertainty + self.detectionTolerance
 
-smallPrototype5 = FeatureModel(polygons([0, 0.06], 
-                                        [1, 4], 
-                                        [False, True], 
-                                        [-0.043, 0]),
-                                        placementUncertainty=.0012,
-                                        detectionTolerance=0.0006)
-
-smallPrototypeSquare = FeatureModel(polygons([0.06], 
-                                        [4], 
-                                        [True], 
-                                        [0]),
-                                        placementUncertainty=.0012,
-                                        detectionTolerance=0.0006)
-
-smallPrototype9 = FeatureModel(polygons([0, 0.06], 
-                                        [1, 8], 
-                                        [False, True], 
-                                        [-0.043, 0]))
-
-bigPrototype5 = FeatureModel(np.array([[0, 0, -0.465], 
-                                       [-0.33, -0.2575, 0], 
-                                       [0.33, -0.2575, 0], 
-                                       [0.33, 0.2575, 0], 
-                                       [-0.33, 0.2575, 0]]))
-
-bigPrototype52 = FeatureModel(np.array([[-0.04, -0.2575-0.05, 0], 
-                                       [-0.33, -0.2575, 0], 
-                                       [0.33, -0.2575, 0], 
-                                       [0.33, 0.2575, 0], 
-                                       [-0.33, 0.2575, 0]]))
+    @staticmethod
+    def fromYaml(yamlPath):
+        with open(yamlPath, "r") as file:
+            featureModelData = yaml.load(file)
         
-idealModel = FeatureModel(polygons([0, 1], 
-                                   [1, 4], 
-                                   [False, True], 
-                                   [-0.7167, 0]))
+        return FeatureModel(featureModelData["model_name"],
+                            np.array(featureModelData["features"], dtype=np.float32),
+                            featureModelData["placement_uncertainty"],
+                            featureModelData["detection_tolerance"])
+
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
+    from mpl_toolkits import mplot3d
+    import rospy
+    import rospkg
+    import os
+    import argparse
 
-    fm = FeatureModel([0.06, 0], [4, 1], [False, False], [0, 0.043])
-    
+    parser = argparse.ArgumentParser()
+    parser.add_argument("feature_model_yaml", help="feature model yaml file")
+    args = parser.parse_args()
+
+    featureModelYaml = args.feature_model_yaml
+    yamlPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "feature_models/{}".format(featureModelYaml))
+    fm = FeatureModel.fromYaml(yamlPath)
+
     fig = plt.figure()
     ax = fig.gca(projection='3d')
     ax.scatter(*zip(*fm.features))
-    size = 0.1
+
+    l = fm.maxRad
+    ax.plot([0, l], [0, 0], [0, 0], color="r")
+    ax.plot([0, 0], [0, l], [0, 0], color="g")
+    ax.plot([0, 0], [0, 0], [0, l], color="b")
+    size = l
     ax.set_xlim(-size, size)
     ax.set_ylim(-size, size)
     ax.set_zlim(-size, size)

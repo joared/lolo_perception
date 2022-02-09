@@ -70,6 +70,7 @@ class PoseSimulation:
             linInc = 0.1
             angInc = 0.1
             key = cv.waitKey(1)
+            
             if key == ord('w'):
                 trueTrans[2] += linInc
             elif key == ord("s"):
@@ -127,7 +128,8 @@ class PoseSimulation:
 
             pixelCovariance = np.array([[sigmaX**2, 0], [0, sigmaY**2]])
 
-            lightSourcesNoised = [ LightSource( np.array([[[ p[0], p[1] ]]], dtype=np.int32) ) for p in projPointsNoised]
+            # TODO: use something else than max intensity (255)?
+            lightSourcesNoised = [ LightSource( np.array([[[ p[0], p[1] ]]], dtype=np.int32), intensity=255 ) for p in projPointsNoised]
             dsPoseNoised = poseEstimator.estimatePose(lightSourcesNoised, 
                                                       estTranslationVec,
                                                       estRotationVec)
@@ -168,10 +170,19 @@ class PoseSimulation:
             rate.sleep()
 
 if __name__ =="__main__":
-    from lolo_perception.feature_model import FeatureModel, polygons, smallPrototype5
-    from lolo_perception.camera_model import usbCamera720p
+    from lolo_perception.feature_model import FeatureModel
+    from lolo_perception.camera_model import Camera
+    import os
+    import rospkg
+
     rospy.init_node('pose_estimation_simulation')
 
-    camera = usbCamera720p
-    featureModel = smallPrototype5
+    featureModelYaml = rospy.get_param("~feature_model_yaml")
+    featureModelYamlPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "feature_models/{}".format(featureModelYaml))
+    featureModel = FeatureModel.fromYaml(featureModelYamlPath)
+
+    cameraYaml = rospy.get_param("~camera_yaml")
+    cameraYamlPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "camera_calibration_data/{}".format(cameraYaml))
+    camera = Camera.fromYaml(cameraYamlPath)
+
     PoseSimulation().test2DNoiseError(camera, featureModel, sigmaX=.00001, sigmaY=.00001)

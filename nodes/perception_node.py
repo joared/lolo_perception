@@ -281,18 +281,14 @@ class Perception:
 
 
 if __name__ == '__main__':
-    from lolo_perception.feature_model import smallPrototype5, bigPrototype5
-
+    from lolo_perception.feature_model import FeatureModel
+    import os
+    import rospkg
     rospy.init_node('perception_node')
 
-    featureModels = {"small": smallPrototype5,
-                     "big": bigPrototype5}
-
-    featureModelStr = rospy.get_param("~feature_model")
-
-    featureModel = featureModels[featureModelStr]
-
-    print(featureModel.features)
+    featureModelYaml = rospy.get_param("~feature_model_yaml")
+    featureModelYamlPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "feature_models/{}".format(featureModelYaml))
+    featureModel = FeatureModel.fromYaml(featureModelYamlPath)
 
     perception = Perception(featureModel)
     perception.run(publishPose=True, publishImages=True)
