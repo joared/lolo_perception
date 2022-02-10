@@ -259,35 +259,6 @@ class PoseAndImageUncertaintyEstimator:
 
         return poseAvg, camPoseAvg, imageAvgs
 
-class PoseAverageAndCovarianceEstimator:
-    """
-    Utility class to use when evaluating uncertainty of pose and image points.
-    Make sure all the samples are correct (watch out for outliers)
-    """
-    def __init__(self, nSamples=100):
-        self.poseVecs = [] # list of pose vectors [tx, ty, tz, rx, ry, rz]
-        self.nSamples = nSamples
-
-    def add(self, translationVec, rotationVec):
-
-        self.poseVecs.insert(0, list(translationVec) + list(rotationVec))
-        self.poseVecs = self.poseVecs[:self.nSamples]
-
-    def calcCovariance(self):
-        if len(self.poseVecs) > 1:
-            poseCov = np.cov(self.poseVecs, rowvar=False)
-        else:
-            poseCov = np.zeros((6,6))
-
-        return poseCov
-
-    def calcAverage(self):
-        # This only works for small differences in rotation and 
-        # when rotations are not near +-pi
-        poseAvg = np.mean(self.poseVecs, axis=0)
-
-        return poseAvg
-
 class ImagePointsAverageAndCovarianceEstimator:
     """
     Utility class to use when evaluating uncertainty of pose and image points.

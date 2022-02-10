@@ -9,22 +9,19 @@ Panels:
         - /TF1
         - /TF1/Frames1
         - /Image1
-        - /Image2
-        - /Image3
-        - /Image4
         - /Pose1
-        - /PoseWithCovariance1
         - /PoseWithCovariance1/Covariance1
         - /PoseWithCovariance1/Covariance1/Position1
         - /PoseWithCovariance1/Covariance1/Orientation1
-        - /PoseWithCovariance2
         - /PoseWithCovariance2/Covariance1
         - /PoseWithCovariance2/Covariance1/Position1
         - /PoseWithCovariance2/Covariance1/Orientation1
-        - /PoseArray1
-        - /PoseArray2
+        - /PoseWithCovariance3
+        - /PoseWithCovariance3/Covariance1
+        - /PoseWithCovariance3/Covariance1/Position1
+        - /PoseWithCovariance3/Covariance1/Orientation1
       Splitter Ratio: 0.5
-    Tree Height: 411
+    Tree Height: 874
   - Class: rviz/Selection
     Name: Selection
   - Class: rviz/Tool Properties
@@ -43,7 +40,7 @@ Panels:
     Experimental: false
     Name: Time
     SyncMode: 0
-    SyncSource: Image
+    SyncSource: ""
 Preferences:
   PromptSaveOnExit: true
 Toolbars:
@@ -78,9 +75,9 @@ Visualization Manager:
           Value: true
         camera2:
           Value: true
-        lights_noised:
+        docking_station_noised/pose:
           Value: true
-        lights_true:
+        docking_station_true/pose:
           Value: true
         map:
           Value: true
@@ -92,10 +89,10 @@ Visualization Manager:
       Tree:
         map:
           camera1:
-            lights_true:
+            docking_station_true/pose:
               {}
           camera2:
-            lights_noised:
+            docking_station_noised/pose:
               {}
       Update Interval: 0
       Value: true
@@ -107,43 +104,7 @@ Visualization Manager:
       Min Value: 0
       Name: Image
       Normalize Range: true
-      Queue Size: 2
-      Transport Hint: raw
-      Unreliable: false
-      Value: false
-    - Class: rviz/Image
-      Enabled: true
-      Image Topic: /pose/image
-      Max Value: 1
-      Median window: 5
-      Min Value: 0
-      Name: Image
-      Normalize Range: true
       Queue Size: 4
-      Transport Hint: raw
-      Unreliable: false
-      Value: true
-    - Class: rviz/Image
-      Enabled: false
-      Image Topic: /pose/image
-      Max Value: 1
-      Median window: 5
-      Min Value: 0
-      Name: Image
-      Normalize Range: true
-      Queue Size: 2
-      Transport Hint: raw
-      Unreliable: false
-      Value: false
-    - Class: rviz/Image
-      Enabled: false
-      Image Topic: /pose/image
-      Max Value: 1
-      Median window: 5
-      Min Value: 0
-      Name: Image
-      Normalize Range: true
-      Queue Size: 2
       Transport Hint: raw
       Unreliable: false
       Value: false
@@ -189,7 +150,7 @@ Visualization Manager:
       Shaft Length: 0.20000000298023224
       Shaft Radius: 0.009999999776482582
       Shape: Axes
-      Topic: /light_noised/pose
+      Topic: /docking_station_noised/pose
       Unreliable: false
       Value: true
     - Alpha: 1
@@ -204,12 +165,12 @@ Visualization Manager:
           Color Style: Unique
           Frame: Local
           Offset: 0.20000000298023224
-          Scale: 5
+          Scale: 1
           Value: true
         Position:
           Alpha: 0.30000001192092896
           Color: 204; 51; 204
-          Scale: 5
+          Scale: 1
           Value: true
         Value: true
       Enabled: true
@@ -219,7 +180,7 @@ Visualization Manager:
       Shaft Length: 0.20000000298023224
       Shaft Radius: 0.009999999776482582
       Shape: Axes
-      Topic: /light_true/pose
+      Topic: /docking_station_true/pose
       Unreliable: false
       Value: true
     - Alpha: 1
@@ -235,7 +196,7 @@ Visualization Manager:
       Shaft Length: 0.23000000417232513
       Shaft Radius: 0.009999999776482582
       Shape: Axes
-      Topic: /light_noised/poses
+      Topic: /docking_station_noised/lights
       Unreliable: false
       Value: true
     - Alpha: 1
@@ -251,7 +212,37 @@ Visualization Manager:
       Shaft Length: 0.23000000417232513
       Shaft Radius: 0.009999999776482582
       Shape: Axes
-      Topic: /light_true/poses
+      Topic: /docking_station_true/lights
+      Unreliable: false
+      Value: true
+    - Alpha: 1
+      Axes Length: 0.20000000298023224
+      Axes Radius: 0.019999999552965164
+      Class: rviz/PoseWithCovariance
+      Color: 255; 25; 0
+      Covariance:
+        Orientation:
+          Alpha: 0.5
+          Color: 255; 255; 127
+          Color Style: Unique
+          Frame: Local
+          Offset: 0.20000000298023224
+          Scale: 1
+          Value: true
+        Position:
+          Alpha: 0.30000001192092896
+          Color: 204; 51; 204
+          Scale: 1
+          Value: true
+        Value: true
+      Enabled: true
+      Head Length: 0.30000001192092896
+      Head Radius: 0.10000000149011612
+      Name: PoseWithCovariance
+      Shaft Length: 1
+      Shaft Radius: 0.05000000074505806
+      Shape: Axes
+      Topic: /docking_station_noised/pose/average
       Unreliable: false
       Value: true
   Enabled: true
@@ -282,25 +273,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/ThirdPersonFollower
-      Distance: 1.4525812864303589
+      Distance: 2.361816644668579
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.5889928340911865
-        Y: 0.8291952610015869
-        Z: 0
+        X: 0.7499321699142456
+        Y: 5.8488078117370605
+        Z: 2.3096799850463867e-7
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.6253980994224548
+      Pitch: 0.5247964859008789
       Target Frame: camera1
       Value: ThirdPersonFollower (rviz)
-      Yaw: 5.273586750030518
+      Yaw: 1.610402226448059
     Saved: ~
 Window Geometry:
   Displays:
@@ -310,7 +301,7 @@ Window Geometry:
   Hide Right Dock: false
   Image:
     collapsed: false
-  QMainWindow State: 000000ff00000000fd00000004000000000000029d000003a7fc0200000010fb0000001200530065006c0065006300740069006f006e00000001e10000009b0000005c00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007302000001ed000001df00000185000000a3fb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb000000100044006900730070006c006100790073010000003d000001d8000000c900fffffffb0000000800540069006d0065000000003d000000610000003900fffffffb0000000a0049006d0061006700650000000122000001850000001600fffffffb0000000a0049006d00610067006500000001c90000009b0000001600fffffffb0000000a0049006d00610067006500000002c7000000540000001600fffffffb0000000a0049006d006100670065010000021b000001c90000001600fffffffb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c00000261fb0000000a0049006d00610067006501000000f60000013b0000000000000000fb0000000a0049006d0061006700650100000237000000c90000000000000000fb0000000a0049006d0061006700650100000306000000de00000000000000000000000100000100000003a7fc0200000003fb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000000a00560069006500770073010000003d000003a7000000a400fffffffb0000001200530065006c0065006300740069006f006e010000025a000000b20000000000000000000000020000073d0000011dfc0100000001fb0000000a00560069006500770073030000004e00000080000002e10000019700000003000008580000003efc0100000001fb0000000800540069006d0065010000000000000450000000000000000000000394000003a700000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd00000004000000000000029d000003a7fc0200000010fb0000001200530065006c0065006300740069006f006e00000001e10000009b0000005c00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007302000001ed000001df00000185000000a3fb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb000000100044006900730070006c006100790073010000003d000003a7000000c900fffffffb0000000800540069006d0065000000003d000000610000003900fffffffb0000000a0049006d0061006700650000000122000001850000001600fffffffb0000000a0049006d00610067006500000001c90000009b0000000000000000fb0000000a0049006d00610067006500000001ed000000540000000000000000fb0000000a0049006d006100670065010000021b000001c90000000000000000fb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c00000261fb0000000a0049006d00610067006501000000f60000013b0000000000000000fb0000000a0049006d0061006700650100000237000000c90000000000000000fb0000000a0049006d0061006700650100000306000000de00000000000000000000000100000100000003a7fc0200000003fb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000000a00560069006500770073010000003d000003a7000000a400fffffffb0000001200530065006c0065006300740069006f006e010000025a000000b20000000000000000000000020000073d0000011dfc0100000001fb0000000a00560069006500770073030000004e00000080000002e10000019700000003000008580000003efc0100000001fb0000000800540069006d0065010000000000000450000000000000000000000394000003a700000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Selection:
     collapsed: false
   Time:

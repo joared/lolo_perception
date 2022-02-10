@@ -15,8 +15,11 @@ def calcErrPoint(p, deltaE):
 
     # TODO: if pNorm >> deltaE, np.arcsin(...) can be neglected
     if px < 0:
-        beta = np.arctan2(-px, -pz)
+        #beta = np.arctan2(-px, -pz)
+        #theta = -beta + np.arcsin( deltaE/pNorm )
+        beta = np.arctan2(px, pz) + np.pi
         theta = -beta + np.arcsin( deltaE/pNorm )
+    
     else:
         beta = np.arctan2(px, pz)
         theta = -beta - np.arcsin( deltaE/pNorm )
@@ -27,22 +30,17 @@ def calcErrPoint(p, deltaE):
 
 def maxReprojectionError(point, f, deltaE):
     newPoint = calcErrPoint(point, deltaE)
-    reprojErr = f*point[0]/point[1]- f*newPoint[0]/newPoint[1]
+    reprojErr = f*point[0]/float(point[1])- f*newPoint[0]/float(newPoint[1])
     return reprojErr
 
-def doTheStuff(img, f, fScale, deltaE, center, points, calcErrMethod):
+def plot2DReprojection(img, f, fScale, deltaE, center, points, calcErrMethod):
     for point in points:
         deltaEVec = calcErrMethod(point, deltaE)
 
         newPoint = deltaEVec
         
-        rx1 = fScale*f*point[0]/point[1], fScale*f
-        rx2 = fScale*f*newPoint[0]/newPoint[1], fScale*f
-        #rx1Pixel = fPixel*point[0]/point[1]
-        #rx2Pixel = fPixel*newPoint[0]/newPoint[1]
-        #reprojErr = abs(rx1Pixel-rx2Pixel)
-        reprojErr = abs(f*point[0]/point[1]- f*newPoint[0]/newPoint[1])
-        #print("Reprojection error: {}".format(reprojErr))
+        rx1 = fScale*float(f)*point[0]/point[1], fScale*f
+        rx2 = fScale*float(f)*newPoint[0]/newPoint[1], fScale*f
 
         # detected point
         point = adjustToCenter(center, point)
@@ -51,14 +49,14 @@ def doTheStuff(img, f, fScale, deltaE, center, points, calcErrMethod):
         cv.line(img, center, point, color=(0,0,255/2))
 
         # reprojection point
-        
         rx1 = adjustToCenter(center, rx1)
         rx1 = toValidPixel(rx1)
         cv.line(img, (rx1[0], rx1[1]-5), (rx1[0], rx1[1]+5), color=(0,0,255))
 
         # worst true point
-        newPoint = (int(round(newPoint[0])), int(round(newPoint[1])))
+         #(int(round(newPoint[0])), int(round(newPoint[1])))
         newPoint = adjustToCenter(center, newPoint)
+        newPoint = toValidPixel(newPoint)
         cv.circle(img, newPoint, 1, (0,255,0), 1)
         cv.line(img, center, newPoint, color=(0,255/2,0))
 
@@ -86,7 +84,7 @@ def plotReprojection(points, cameraResolution, f, deltaE, rangeMeter, fScale=1./
     deltaE *= meter
     points *= meter
     points = [toValidPixel(p) for p in points]
-    doTheStuff(img, f, fScale, deltaE, center, points, calcErrPoint)
+    plot2DReprojection(img, f, fScale, deltaE, center, points, calcErrPoint)
 
     img = cv.flip(img, 0)
     return img
@@ -106,6 +104,10 @@ def calcPoseReprojectionRMSEThreshold(translationVec, rotationVec, camera, featu
         maxReprojErrX = maxReprojectionError((point3D[0], point3D[2]), camera.cameraMatrix[0, 0], deltaE=featureModel.uncertainty)
         maxReprojErrY = maxReprojectionError((point3D[1], point3D[2]), camera.cameraMatrix[1, 1], deltaE=featureModel.uncertainty)
         reprErrs.append([maxReprojErrX, maxReprojErrY])
+
+    reprErrs = np.array(reprErrs)
+    maxRMSE = np.sqrt(np.sum(reprErrs**2)/np.product(reprErrs.shape))
+
     if showImg:
         rangeMeter = featureModel.maxRad*40 # cover 40*max rad of the feature model
         img = plotReprojection(np.array(pointsX), 
@@ -141,18 +143,20 @@ def calcPoseReprojectionRMSEThreshold(translationVec, rotationVec, camera, featu
         img = cv.flip(img, 0)
         cv.imshow("reprojection", img)
         cv.waitKey(1)
-        
-
-    reprErrs = np.array(reprErrs)
-    maxRMSE = np.sqrt(np.sum(reprErrs**2)/np.product(reprErrs.shape))
 
     return maxRMSE
 
 if __name__ == "__main__":
-    cameraResolution = (1280, 720)
+    cameraResolution = (720, 1280)
     fx = 1406
     fy = 1411
-    deltaE = 0.0012
-    points = np.array([(0, .15)])
-    plotReprojection(points, cameraResolution, fx, deltaE, rangeMeter=5, fScale=1/30)
+    deltaE = 0.008545
+    points = np.array([(0, 6), (2, 6), (-2, 6)])
+
+    for p in points:
+        reprErr = maxReprojectionError(p, fx, deltaE)
+        print("Reprojection error: {}".format(reprErr))
+
+    img = plotReprojection(points, cameraResolution, fx, deltaE, rangeMeter=10, fScale=1./20)
+    cv.imshow("reprojection", img)
     cv.waitKey(0)

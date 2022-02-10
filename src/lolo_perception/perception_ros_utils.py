@@ -47,12 +47,9 @@ def vectorToTransform(frameID, childFrameID, translationVector, rotationVector, 
     return t
 
 def poseToVector(pose):
-    translationVector = np.array([0]*3)
-    rotationVector = np.array([0]*3)
-
-    translationVector[0] = pose.pose.pose.position.x
-    translationVector[1] = pose.pose.pose.position.y
-    translationVector[2] = pose.pose.pose.position.z
+    translationVector = np.array([pose.pose.pose.position.x, 
+                                  pose.pose.pose.position.y, 
+                                  pose.pose.pose.position.z])
 
     quat = [pose.pose.pose.orientation.x,
             pose.pose.pose.orientation.y,

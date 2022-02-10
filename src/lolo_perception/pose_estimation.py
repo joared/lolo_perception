@@ -13,6 +13,31 @@ from lolo_perception.feature_extraction import featureAssociation
 
 from lolo_perception.reprojection_utils import calcPoseReprojectionRMSEThreshold
 
+from numpy.linalg import lapack_lite
+#lapack_routine = lapack_lite.dgesv
+
+# Looking one step deeper, we see that solve performs many sanity checks.  
+# Stripping these, we have:
+def fastInverse(A):
+    """
+    https://stackoverflow.com/questions/11972102/is-there-a-way-to-efficiently-invert-an-array-of-matrices-with-numpy
+    """
+    b = np.identity(A.shape[2], dtype=A.dtype)
+
+    n_eq = A.shape[1]
+    n_rhs = A.shape[2]
+    pivots = np.zeros(n_eq, np.intc)
+    identity  = np.eye(n_eq)
+    def lapack_inverse(a):
+        b = np.copy(identity)
+        pivots = np.zeros(n_eq, np.intc)
+        results = lapack_lite.dgelsd(n_eq, n_rhs, a, n_eq, pivots, b, n_eq, 0)
+        if results['info'] > 0:
+            raise np.LinAlgError('Singular matrix')
+        return b
+
+    return np.array([lapack_inverse(a) for a in A])
+
 def calcPoseCovariance(camera, featureModel, translationVector, rotationVector, pixelCovariance):
     _, jacobian = cv.projectPoints(featureModel.features, 
                                    rotationVector.reshape((3, 1)), 
@@ -27,9 +52,13 @@ def calcPoseCovariance(camera, featureModel, translationVector, rotationVector, 
     # How to rotate covariance: https://robotics.stackexchange.com/questions/2556/how-to-rotate-covariance
 
     sigma = scipy.linalg.block_diag(*[pixelCovariance]*len(featureModel.features))
+
     sigmaInv = np.linalg.inv(sigma)
+    #sigmaInv = fastInverse(np.reshape(sigma, (sigma.shape[0], sigma.shape[1], 1))).reshape(sigma.shape)
     try:
-        covariance = np.linalg.inv(np.matmul(np.matmul(J.transpose(), sigmaInv), J))
+        mult = np.matmul(np.matmul(J.transpose(), sigmaInv), J)
+        covariance = np.linalg.inv(mult)
+        #covariance = fastInverse(np.reshape(mult, (mult.shape[0], mult.shape[1], 1))).reshape(mult.shape)
     except np.linalg.LinAlgError as e:
         print("Singular matrix")
 
@@ -127,16 +156,15 @@ class DSPose:
         # About covariance: https://manialabs.wordpress.com/2012/08/06/covariance-matrices-with-a-practical-example/
         # Article: https://www.sciencedirect.com/science/article/pii/S0029801818301367
         # Stack overflow: https://stackoverflow.com/questions/36618269/uncertainty-on-pose-estimate-when-minimizing-measurement-errors
+        # Standard deviation = reprojection rmse/4: https://www.thoughtco.com/range-rule-for-standard-deviation-3126231
         #jacobian - 2*nPoints * 14
         # jacobian - [rotation, translation, focal lengths, principal point, dist coeffs]
 
         # TODO: is RMSE a godd approximation of the standard deviation? (same formula?)
         if pixelCovariance is None:
-            # TODO: rmse or rmseMax?? I think rmseMax makes more sense 
-            #sigmaX = self.rmse
-            #sigmaY = self.rmse
-            sigmaX = self.rmseMax
-            sigmaY = self.rmseMax
+            # https://www.thoughtco.com/range-rule-for-standard-deviation-3126231
+            sigmaX = self.rmseMax/4
+            sigmaY = self.rmseMax/4
             pixelCovariance = np.array([[sigmaX**2, 0], [0, sigmaY**2]])
 
         covariance = calcPoseCovariance(self.camera, 

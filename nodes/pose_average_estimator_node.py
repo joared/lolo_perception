@@ -11,11 +11,39 @@ import time
 import numpy as np
 import matplotlib.pyplot as plt
 
-from lolo_perception.perception_utils import PoseAverageAndCovarianceEstimator
 from lolo_perception.perception_ros_utils import vectorToPose, poseToVector
 
+class PoseAverageAndCovarianceEstimator:
+    """
+    Utility class to use when evaluating uncertainty of pose and image points.
+    Make sure all the samples are correct (watch out for outliers)
+    """
+    def __init__(self, nSamples=100):
+        self.poseVecs = [] # list of pose vectors [tx, ty, tz, rx, ry, rz]
+        self.nSamples = nSamples
 
-class AveragePosesAndImagePoints:
+    def add(self, translationVec, rotationVec):
+
+        self.poseVecs.insert(0, list(translationVec) + list(rotationVec))
+        self.poseVecs = self.poseVecs[:self.nSamples]
+
+    def calcCovariance(self):
+        if len(self.poseVecs) > 1:
+            poseCov = np.cov(self.poseVecs, rowvar=False)
+        else:
+            poseCov = np.zeros((6,6), dtype=np.float32)
+
+        return poseCov
+
+    def calcAverage(self):
+        # This only works for small differences in rotation and 
+        # when rotations are not near +-pi
+        if self.poseVecs:
+            return np.mean(self.poseVecs, axis=0)
+
+        return np.zeros((6,), dtype=np.float32)
+
+class PoseAverageEstimatorNode:
     def __init__(self, nSamples, poseTopic):
         self.estimator = PoseAverageAndCovarianceEstimator(nSamples=nSamples)
         self.frameID = None # will be the same as the subscribed poses
@@ -35,7 +63,6 @@ class AveragePosesAndImagePoints:
     def calcPose(self):
         poseAvg = self.estimator.calcAverage()
         poseCov = self.estimator.calcCovariance()
-        
         return vectorToPose(self.frameID, poseAvg[:3], poseAvg[3:], poseCov)
 
     def run(self):
@@ -46,4 +73,7 @@ class AveragePosesAndImagePoints:
 
 
 if __name__ == '__main__':
-    pass
+    rospy.init_node("average_pose_estimator")
+    poseTopic = rospy.get_param("~pose_topic")
+    estimator = PoseAverageEstimatorNode(nSamples=100, poseTopic=poseTopic)
+    estimator.run()
