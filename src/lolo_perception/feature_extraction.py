@@ -762,6 +762,7 @@ def findNPeaks(gray, kernel, p, n, margin=1, offset=(0,0), drawImg=None):
                 threshold = int(p*maxIntensity)
                 ret, threshImg = cv.threshold(grayMasked, threshold, 256, cv.THRESH_BINARY)
 
+        # TODO: this could probably be more efficient, extracting all contours at this intensity level at the same time
         maxIndx = np.unravel_index(np.argmax(peaksDilationMasked), gray.shape)
         center = maxIndx[1], maxIndx[0]
         cntPeak, cntPeakOffset = findPeakContourAt(threshImg, center, offset=offset)
