@@ -15,7 +15,7 @@ class Perception:
         # Use HATS when light sources are "large"
         # This feature extractor sorts candidates based on area
         self.hatsFeatureExtractor = AdaptiveThreshold2(len(self.featureModel.features), 
-                                                       marginPercentage=0.004, # For 255, this wil correspond to 254 
+                                                       marginPercentage=0.01, 
                                                        minArea=10, 
                                                        minRatio=0.2,
                                                        thresholdType=cv.THRESH_BINARY)
