@@ -143,7 +143,7 @@ class DSPose:
                                                          showImg=False)
 
         lightSourceReprojections = np.array([ls.radius for ls in self.associatedLightSources], dtype=np.float32)
-        rmseMaxLightsource = np.sqrt(np.sum(lightSourceReprojections**2)/len(self.associatedLightSources))
+        #rmseMaxLightsource = np.sqrt(np.sum(lightSourceReprojections**2)/len(self.associatedLightSources))
 
         self._rmse = rmse
         self._rmseMax = rmseMaxModel
