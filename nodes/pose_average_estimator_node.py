@@ -75,5 +75,6 @@ class PoseAverageEstimatorNode:
 if __name__ == '__main__':
     rospy.init_node("average_pose_estimator")
     poseTopic = rospy.get_param("~pose_topic")
-    estimator = PoseAverageEstimatorNode(nSamples=100, poseTopic=poseTopic)
+    nSamples = rospy.get_param("~n_samples")
+    estimator = PoseAverageEstimatorNode(nSamples=nSamples, poseTopic=poseTopic)
     estimator.run()

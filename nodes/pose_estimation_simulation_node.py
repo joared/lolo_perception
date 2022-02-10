@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+
 import cv2 as cv
 import numpy as np
 import time
@@ -199,4 +200,5 @@ if __name__ =="__main__":
     cameraYamlPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "camera_calibration_data/{}".format(cameraYaml))
     camera = Camera.fromYaml(cameraYamlPath)
 
-    PoseSimulation(camera, featureModel).test2DNoiseError(sigmaX=2, sigmaY=2)
+    sim = PoseSimulation(camera, featureModel)
+    sim.test2DNoiseError(sigmaX=2, sigmaY=2)
