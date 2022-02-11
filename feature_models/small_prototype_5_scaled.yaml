@@ -1,0 +1,8 @@
+model_name: small_prototype_5_scaled
+features: [[0, 0, -0.43],
+           [-0.424254, -0.424254, 0],
+           [0.424254, -0.424254, 0],
+           [0.424254, 0.424254, 0],
+           [-0.424254, 0.424254, 0]]
+placement_uncertainty: 0.012
+detection_tolerance: 0.006

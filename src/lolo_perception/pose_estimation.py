@@ -163,6 +163,7 @@ class DSPose:
         # TODO: is RMSE a godd approximation of the standard deviation? (same formula?)
         if pixelCovariance is None:
             # https://www.thoughtco.com/range-rule-for-standard-deviation-3126231
+            # 2 - 95 %, 4 - 99 %
             sigmaX = self.rmseMax/4
             sigmaY = self.rmseMax/4
             pixelCovariance = np.array([[sigmaX**2, 0], [0, sigmaY**2]])

@@ -18,6 +18,7 @@ from lolo_perception.perception import Perception
 
 class PerceptionNode:
     def __init__(self, featureModel):
+        self.cameraTopic = "lolo_camera"
         self.cameraInfoSub = rospy.Subscriber("lolo_camera/camera_info", CameraInfo, self._getCameraCallback)
         self.camera = None
         while not rospy.is_shutdown() and self.camera is None:
@@ -39,13 +40,13 @@ class PerceptionNode:
         self.associatedImagePointsPublisher = rospy.Publisher('lolo_camera/associated_image_points', PoseArray, queue_size=1)
 
         # publish estimated pose
-        self.posePublisher = rospy.Publisher('docking_station/pose', PoseWithCovarianceStamped, queue_size=1)
+        self.posePublisher = rospy.Publisher('docking_station/feature_model/estimated_pose', PoseWithCovarianceStamped, queue_size=1)
 
         # publish transform of estimated pose
         self.transformPublisher = rospy.Publisher("/tf", tf.msg.tfMessage, queue_size=1)
 
         # publish placement of the light sources as a PoseArray (published in the docking_station frame)
-        self.featurePosesPublisher = rospy.Publisher('lights/poses', PoseArray, queue_size=1)
+        self.featurePosesPublisher = rospy.Publisher('docking_station/feature_model/estimated_poses', PoseArray, queue_size=1)
 
     def _getCameraCallback(self, msg):
         """
@@ -86,20 +87,20 @@ class PerceptionNode:
         # publish pose if pose has been aquired
         if publishPose and poseAquired:
             # publish transform
-            dsTransform = vectorToTransform("lolo_camera", 
-                                            "docking_station", 
+            dsTransform = vectorToTransform("lolo_camera_link", 
+                                            "docking_station/feature_model_estimated_link", 
                                             dsPose.translationVector, 
                                             dsPose.rotationVector, 
                                             timeStamp=timeStamp)
             self.transformPublisher.publish(tf.msg.tfMessage([dsTransform]))
 
             # Publish placement of the light sources as a PoseArray (published in the docking_station frame)
-            pArray = featurePointsToMsg("docking_station", self.perception.featureModel.features, timeStamp=timeStamp)
+            pArray = featurePointsToMsg("docking_station/feature_model_estimated_link", self.perception.featureModel.features, timeStamp=timeStamp)
             self.featurePosesPublisher.publish(pArray)
             
             # publish estimated pose
             self.posePublisher.publish(
-                vectorToPose("lolo_camera", 
+                vectorToPose("lolo_camera_link", 
                 dsPose.translationVector, 
                 dsPose.rotationVector, 
                 dsPose.covariance,
