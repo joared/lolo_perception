@@ -98,11 +98,11 @@ class Perception:
             # which determines the maximum allowed reprojection RMSE
             if estDSPose and self.featureExtractor == self.hatsFeatureExtractor:
                 # if we use HATS, presumably we are close and we want to find the best pose
-                dsPose = self.poseEstimator.findBestPose(associatedPermutations, firstValid=False)
+                dsPose = self.poseEstimator.findBestPose(associatedPermutations, estDSPose=estDSPose, firstValid=False)
             else:
                 # if we use local peak, presumably we are far away, 
                 # and the first valid pose is good enough in most cases 
-                dsPose = self.poseEstimator.findBestPose(associatedPermutations, firstValid=True)
+                dsPose = self.poseEstimator.findBestPose(associatedPermutations, estDSPose=estDSPose, firstValid=True)
 
             if dsPose:
                 if dsPose.rmse < dsPose.rmseMax:
