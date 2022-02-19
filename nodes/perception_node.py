@@ -162,9 +162,17 @@ if __name__ == '__main__':
     from lolo_perception.feature_model import FeatureModel
     import os
     import rospkg
+    import argparse
     rospy.init_node('perception_node')
 
-    featureModelYaml = rospy.get_param("~feature_model_yaml")
+    parser = argparse.ArgumentParser(description='Perception node')
+    parser.add_argument('-feature_model_yaml', type=str, default="big_prototype_5.yaml",
+                        help='')
+    
+    args = parser.parse_args()
+
+    #featureModelYaml = rospy.get_param("~feature_model_yaml")
+    featureModelYaml = args.feature_model_yaml
     featureModelYamlPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "feature_models/{}".format(featureModelYaml))
     featureModel = FeatureModel.fromYaml(featureModelYamlPath)
 

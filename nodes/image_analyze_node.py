@@ -6,15 +6,14 @@ import os
 import time
 import cv2 as cv
 import matplotlib.pyplot as plt
-import scipy.misc
 from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 import rospy
 import rospkg
 import rosbag
-from cv_bridge import CvBridge, CvBridgeError
+from cv_bridge import CvBridge
 from sensor_msgs.msg import Image, CameraInfo
-from geometry_msgs.msg import Point, PoseArray
+from geometry_msgs.msg import PoseArray
 
 from lolo_perception.camera_model import Camera
 from lolo_perception.perception_ros_utils import readCameraYaml, msgToImagePoints
@@ -538,7 +537,7 @@ class ImageAnalyzeNode:
     def _analyzeImage(self, imgRect, nFeatures, mask=None):
         gray = cv.cvtColor(imgRect, cv.COLOR_BGR2GRAY)
         cv.imshow("gray", gray)
-        return imgRect
+        return gray
                 
         
         if mask is None:
@@ -915,97 +914,17 @@ class ImageAnalyzeNode:
 
         return grayMasked
 
-    def analyzeImageOld(self, imgName, frame, labeledImgs):
-        labeler = ImageLabeler()
-        imgColorRaw = frame.copy()
-        imgRectOrig = self.camera.undistortImage(imgColorRaw).astype(np.uint8)
-
-        self.associatedImgPointsMsg = None
-        histogramActive = False
-        # publish once
-        self._publish(imgColorRaw, imgRectOrig)
-        while not rospy.is_shutdown():
-            imgRect = imgRectOrig.copy()
-
-            # get associated points from subscription
-            #rospy.sleep(0.1)
-            points = []
-            if self.associatedImgPointsMsg:
-                points = msgToImagePoints(self.associatedImgPointsMsg)
-
-            # plot predictions and error circles
-            tmpFrame = imgRect.copy()
-            for p in points:
-                cv.circle(tmpFrame, p, 2, (255, 0, 0), 2)
-
-            # get error circles
-            errCircles = None
-            if imgName in labeledImgs:
-                errCircles = labeledImgs[imgName]
-            if errCircles:
-                for j, ec in enumerate(self._undistortErrCircles(errCircles)):
-                    drawErrorCircle(tmpFrame, ec, j, (0, 255, 0))
-
-            # draw roi if it exists
-            mask = None
-            if self._roi[2] > 0:
-                x, y = self._coordinatePressed 
-                size = self._roi[2]
-                mask = np.zeros(tmpFrame.shape[:2], dtype=np.uint8)
-                mask[y-size:y+size, x-size:x+size] = 1
-                tmpFrame = cv.bitwise_and(tmpFrame, tmpFrame, mask=mask)
-                #imgRect = cv.bitwise_and(imgRect, imgRect, mask=mask)
-                cv.circle(tmpFrame, self._coordinatePressed, self._roi[2], (0,255,0), 2)
-
-            cv.imshow("frame", tmpFrame)
-            cv.setWindowTitle("frame", imgName)
-            cv.setMouseCallback("frame", self._click)
-
-            key = cv.waitKey(1) & 0xFF
-
-            nFeatures = 0
-            if errCircles: nFeatures = len(errCircles)
-            analyzeImg = self._analyzeImage(imgRect, nFeatures, mask=mask)
-
-            if histogramActive:
-                plt.pause(0.00001)
-
-            if key == 0xFF:# ord("p"):
-                continue
-            elif key == ord("p"):
-                print("publishing")
-                # publish raw image, rect image and camera_info
-                self._publish(imgColorRaw, imgRect)
-            elif key == ord('q'):
-                return ord("q")
-            elif key == ord('h'):
-                self._histogram(analyzeImg)
-                histogramActive = True
-            elif key == ord("+"):
-                self.analyzeThreshold += 1
-                print("Threshold: {}".format(self.analyzeThreshold))
-            elif key == ord("-"):
-                self.analyzeThreshold -= 1
-                print("Threshold: {}".format(self.analyzeThreshold))
-            elif key == ord("r"):
-                # set region of interest
-                pass
-            elif key == ord("l"):
-                labels = labeler.label(frame, imgName, errCircles=errCircles)
-                if labels:
-                    #labeledImgs[join(datasetPath, imgName)] = labels
-                    labeledImgs[imgName] = labels
-                    cv.imwrite(join(datasetPath, imgName), frame)
-                    print("Saved image frame '{}'".format(imgName))
-                else:
-                    print("No labels registered, image not saved")
-            else:
-                return key
+    def _histogram(self, gray):
+        xx, yy = np.mgrid[0:gray.shape[0], 0:gray.shape[1]]
+        plt.cla()
+        #gray = cv.flip(gray, 1)
+        gray = cv.flip(gray, 0)
+        plt.contour(yy, xx, gray, level=10)
 
     def analyzeImage(self, imgName, imgColorRaw, imgRectOrig, labeledImgs, analyzeImg=True):
 
         self.associatedImgPointsMsg = None
-        histogramActive = False
+        
         # publish once
         self._publish(imgColorRaw, imgRectOrig)
         while not rospy.is_shutdown():
@@ -1051,7 +970,8 @@ class ImageAnalyzeNode:
             if errCircles: nFeatures = len(errCircles)
             analyzeImg = self._analyzeImage(imgRect, nFeatures, mask=mask)
 
-            if histogramActive:
+            if self.histogramActive:
+                self._histogram(analyzeImg)
                 plt.pause(0.00001)
 
             if key == ord("q"):
@@ -1064,7 +984,7 @@ class ImageAnalyzeNode:
                 self._publish(imgColorRaw, imgRect)
             elif key == ord('h'):
                 self._histogram(analyzeImg)
-                histogramActive = True
+                self.histogramActive = True
             elif key == ord("+"):
                 self.analyzeThreshold += 1
                 print("Threshold: {}".format(self.analyzeThreshold))
@@ -1094,6 +1014,7 @@ class ImageAnalyzeNode:
         lightSourceAnalyzer = LightSourceTrackAnalyzer()
         rcfAnalyzer = RCFAnalyzer()
         peakAnalyzer = PeakAnalyzer()
+        self.histogramActive = False
         pause = True
         for imgName, frame, i in imageGenerator():
             imgColorRaw = frame.copy()
@@ -1225,7 +1146,7 @@ if __name__ == "__main__":
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/usb_camera_720p_sim.yaml")
     rosbagFile = "sim_bag.bag"
     rosbagPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), join("rosbags", rosbagFile))
-    imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "/lolo/sim/camera_aft/image_color", startFrame=1, analyzeImages=False)
+    imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "/lolo/sim/camera_aft/image_color", startFrame=1, analyzeImages=True)
 
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/usb_camera_720p_8.yaml")
     rosbagFile = "ice.bag"

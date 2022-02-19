@@ -26,6 +26,7 @@ class Perception:
                                                           kernelSize=11, 
                                                           p=0.97)
         
+        # start with peak
         self.featureExtractor = self.peakFeatureExtractor
 
         # max additional light source candidates that will be considered by 
@@ -35,7 +36,7 @@ class Perception:
         self.maxAdditionalCandidates = 6
 
         # margin of the region of interest when pose has been aquired
-        self.roiMargin = 50
+        self.roiMargin = 70
 
         # Pose estimator that calculates poses from detected light sources
         self.poseEstimator = DSPoseEstimator(self.camera, 

@@ -200,8 +200,7 @@ if  __name__ == "__main__":
              # pose from short range (20 cm)
              (-0.8, 0.16, 19.74, -3.08, 1.45, 1.47)
              ]
-    camPoses =
-            [
+    camPoses = [
              # poses from long range (120 cm)
              (-0.97, -2.21, -120.07, .5, -1., 0.28),
              (18.57, 2.16, 120.31, -2.75, 1.42, 4.77),

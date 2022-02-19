@@ -8,7 +8,7 @@
   </include> 
 
   <node name="perception_node" pkg="lolo_perception" type="perception_node.py" output="screen" >
-    <param name="feature_model_yaml" value="$(arg feature_model_yaml)"/>
+    <arg name="feature_model_yaml" value="$(arg feature_model_yaml)"/>
   </node>
 
   <!--node pkg="tf" type="static_transform_publisher" name="docking_station_link" args="0 0.5 1 -1.571 0 -1.571 map docking_station 100" /-->
