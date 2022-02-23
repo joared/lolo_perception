@@ -88,33 +88,53 @@ class InverseTransformNode:
         colors = ["r", "g", "b"]
         subPlotRows = 6
         subPlotCols = 2
+
+        # remove the first smaples used when averaging errors
+        poses1 = np.array(self.poses1[self.movingErrAverage-1:])
+        if len(poses1) < self.movingErrAverage:
+            return
+        poses2 = np.array(self.poses2[self.movingErrAverage-1:])
+
+        diffs = np.array(self.diffs)
+        if self.movingErrAverage > 1:
+            n = self.movingErrAverage
+            newDiffs = np.zeros(poses1.shape)
+            for i in range(6):
+                d = np.convolve(diffs[:, i], np.ones(n)/n, mode="valid")
+                newDiffs[:, i] = d
+            diffs = newDiffs
+
+        marginP = 0.1
+        translationDiffs = diffs[:, :3] #[d[:3] for d in self.diffs]
+        yAbsMaxTransl = max(np.max(translationDiffs), np.min(translationDiffs), key=abs)
+        yAbsMaxTransl += yAbsMaxTransl*marginP
+        
+        rotDiffs = diffs[:, 3:] #[d[3:] for d in self.diffs]
+        yAbsMaxRot = max(np.max(rotDiffs), np.min(rotDiffs), key=abs)
+        yAbsMaxRot += yAbsMaxRot*marginP
+
+        # plot translation
         for i, (c, title) in enumerate(zip(colors, titles)):
             plt.subplot(subPlotRows, subPlotCols, 2*i+1)
             plt.cla()
             plt.gca().set_ylabel(title)
 
-            plt.plot([p[i] for p in self.poses1], color=c)
-            plt.plot([p[i] for p in self.poses2], "-o", color=c)
+            plt.plot([p[i] for p in poses1], color=c)
+            plt.plot([p[i] for p in poses2], "-o", color=c)
 
             plt.subplot(subPlotRows, subPlotCols, 2*i+2)
             plt.cla()
             if i == 0:
                 plt.title("Average error, {} samples".format(self.movingErrAverage))
             
-            diffs = [d[i] for d in self.diffs]
-            if self.movingErrAverage > 1:
-                n = self.movingErrAverage
-                diffs = list(np.convolve(diffs, np.ones(n)/n, mode="same"))
-
+            
             # center error around 0
-            yAbsMax = max(diffs, key=abs)
-            marginP = 0.1
-            yAbsMax += yAbsMax*marginP
-            plt.gca().set_ylim(ymin=-yAbsMax, ymax=yAbsMax)
+            plt.gca().set_ylim(ymin=-yAbsMaxTransl, ymax=yAbsMaxTransl)
 
             # zeros reference line
             plt.plot(np.zeros(len(diffs)), "--", color="gray")
-            plt.plot(diffs, color=c)
+
+            plt.plot(diffs[:, i], color=c)
 
         # plot orientation
         titles = ["Roll", "Pitch", "Yaw"]
@@ -124,26 +144,19 @@ class InverseTransformNode:
             plt.cla()
             plt.gca().set_ylabel(title)
 
-            plt.plot([p[3+i] for p in self.poses1], color=c)
-            plt.plot([p[3+i] for p in self.poses2], "-o", color=c)
+            plt.plot([p[3+i] for p in poses1], color=c)
+            plt.plot([p[3+i] for p in poses2], "-o", color=c)
 
             plt.subplot(subPlotRows, subPlotCols, 2*i+2 + subPlotRows)
             plt.cla()
-            
-            diffs = [d[3+i] for d in self.diffs]
-            if self.movingErrAverage > 1:
-                n = self.movingErrAverage
-                diffs = list(np.convolve(diffs, np.ones(n)/n, mode="same"))
 
             # center error around 0
-            yAbsMax = max(diffs, key=abs)
-            marginP = 0.1
-            yAbsMax += yAbsMax*marginP
-            plt.gca().set_ylim(ymin=-yAbsMax, ymax=yAbsMax)
+            plt.gca().set_ylim(ymin=-yAbsMaxRot, ymax=yAbsMaxRot)
 
             # zeros reference line
             plt.plot(np.zeros(len(diffs)), "--", color="gray")
-            plt.plot(diffs, color=c)
+
+            plt.plot(diffs[:, 3+i], color=c)
 
     def plotPose(self):
         colors = ["r", "g", "b"]
@@ -207,9 +220,9 @@ class InverseTransformNode:
                 self.poses2.append(pose2)
                 self.diffs.append(pose1-pose2)
 
-                self.poses1 = self.poses1[-self.bufferLength:]
-                self.poses2 = self.poses2[-self.bufferLength:]
-                self.diffs = self.diffs[-self.bufferLength:]
+                self.poses1 = self.poses1[-self.bufferLength-self.movingErrAverage+1:]
+                self.poses2 = self.poses2[-self.bufferLength-self.movingErrAverage+1:]
+                self.diffs = self.diffs[-self.bufferLength-self.movingErrAverage+1:]
          
                 self.plotPose2()
                 plt.pause(0.001)
