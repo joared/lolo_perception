@@ -5,18 +5,12 @@ Panels:
     Property Tree Widget:
       Expanded:
         - /Global Options1
-        - /TF1
         - /TF1/Frames1
-        - /Image1
-        - /Image2
-        - /PoseWithCovariance1
         - /PoseWithCovariance1/Covariance1
         - /PoseWithCovariance1/Covariance1/Position1
         - /PoseWithCovariance1/Covariance1/Orientation1
-        - /PoseWithCovariance2
-        - /PoseArray1
       Splitter Ratio: 0.5
-    Tree Height: 140
+    Tree Height: 183
   - Class: rviz/Selection
     Name: Selection
   - Class: rviz/Tool Properties
@@ -74,26 +68,52 @@ Visualization Manager:
           Value: true
         lolo/base_link:
           Value: true
-        lolo_camera_link:
+        lolo/camera_link:
+          Value: true
+        lolo/compass_link:
+          Value: true
+        lolo/dvl_link:
+          Value: true
+        lolo/gps_link:
+          Value: true
+        lolo/imu_link:
+          Value: true
+        lolo/pressure_link:
           Value: true
         map:
           Value: true
         sam/base_link:
-          Value: true
+          Value: false
         sam/battery_link:
+          Value: false
+        sam/camera_down_link:
+          Value: false
+        sam/camera_front_left_link:
+          Value: false
+        sam/camera_front_right_link:
+          Value: false
+        sam/docking_station_link:
           Value: true
+        sam/dvl_link:
+          Value: false
+        sam/gps_link:
+          Value: false
         sam/imu_link:
-          Value: true
+          Value: false
         sam/imu_link_ned:
-          Value: true
+          Value: false
+        sam/multibeam_down_link:
+          Value: false
+        sam/pressure_link:
+          Value: false
         sam/sbg_link:
-          Value: true
+          Value: false
         sam/sbg_link_ned:
-          Value: true
+          Value: false
         sam/thruster_link:
-          Value: true
+          Value: false
         sam/thruster_yaw_link:
-          Value: true
+          Value: false
         utm:
           Value: true
         world_ned:
@@ -109,11 +129,48 @@ Visualization Manager:
             world_ned:
               gt/lolo/base_link:
                 lolo/base_link:
-                  lolo_camera_link:
+                  lolo/camera_link:
                     docking_station/feature_model_estimated_link:
                       {}
+                  lolo/compass_link:
+                    {}
+                  lolo/dvl_link:
+                    {}
+                  lolo/gps_link:
+                    {}
+                  lolo/imu_link:
+                    {}
+                  lolo/pressure_link:
+                    {}
               gt/sam/base_link:
-                {}
+                sam/base_link:
+                  sam/battery_link:
+                    {}
+                  sam/camera_down_link:
+                    {}
+                  sam/camera_front_left_link:
+                    {}
+                  sam/camera_front_right_link:
+                    {}
+                  sam/docking_station_link:
+                    {}
+                  sam/dvl_link:
+                    {}
+                  sam/gps_link:
+                    {}
+                  sam/imu_link:
+                    sam/imu_link_ned:
+                      {}
+                  sam/multibeam_down_link:
+                    {}
+                  sam/pressure_link:
+                    {}
+                  sam/sbg_link:
+                    sam/sbg_link_ned:
+                      {}
+                  sam/thruster_yaw_link:
+                    sam/thruster_link:
+                      {}
       Update Interval: 0
       Value: true
     - Class: rviz/Image
@@ -228,11 +285,200 @@ Visualization Manager:
       Topic: /lights/poses
       Unreliable: false
       Value: true
+    - Class: rviz/Image
+      Enabled: false
+      Image Topic: /lolo/sim/camera_aft/image_color
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: Image
+      Normalize Range: true
+      Queue Size: 2
+      Transport Hint: raw
+      Unreliable: false
+      Value: false
+    - Alpha: 1
+      Class: rviz/RobotModel
+      Collision Enabled: false
+      Enabled: true
+      Links:
+        All Links Enabled: true
+        Expand Joint Details: false
+        Expand Link Details: false
+        Expand Tree: false
+        Link Tree Style: Links in Alphabetic Order
+        lolo/base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        lolo/camera_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        lolo/compass_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        lolo/dvl_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        lolo/elevator:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        lolo/elevon_port:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        lolo/elevon_stbd:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        lolo/gps_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        lolo/imu_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        lolo/pose_sensor_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        lolo/pressure_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        lolo/rudder_port:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        lolo/rudder_stbd:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        lolo/thruster_port:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        lolo/thruster_stbd:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+      Name: LoLo
+      Robot Description: lolo/robot_description
+      TF Prefix: ""
+      Update Interval: 0
+      Value: true
+      Visual Enabled: true
+    - Alpha: 1
+      Class: rviz/RobotModel
+      Collision Enabled: false
+      Enabled: true
+      Links:
+        All Links Enabled: true
+        Expand Joint Details: false
+        Expand Link Details: false
+        Expand Tree: false
+        Link Tree Style: Links in Alphabetic Order
+        sam/base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        sam/battery_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        sam/camera_down_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        sam/camera_front_left_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        sam/camera_front_right_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        sam/docking_station_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        sam/dvl_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        sam/gps_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        sam/imu_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        sam/multibeam_down_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        sam/pressure_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        sam/sbg_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        sam/tcg1_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        sam/tcg2_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        sam/thruster_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        sam/thruster_yaw_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+      Name: SAM
+      Robot Description: sam/robot_description
+      TF Prefix: ""
+      Update Interval: 0
+      Value: true
+      Visual Enabled: true
+    - Class: rviz/Image
+      Enabled: true
+      Image Topic: /lolo/sim/camera_aft/image_color
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: Image
+      Normalize Range: true
+      Queue Size: 2
+      Transport Hint: raw
+      Unreliable: false
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
     Default Light: true
-    Fixed Frame: lolo/base_link
+    Fixed Frame: map
     Frame Rate: 30
   Name: root
   Tools:
@@ -256,25 +502,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/ThirdPersonFollower
-      Distance: 5.545957088470459
+      Distance: 10.808246612548828
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.07985305786132812
-        Y: -0.02896296977996826
-        Z: -0.8092515468597412
+        X: 1.5123711824417114
+        Y: -1.291960597038269
+        Z: -1.7896289825439453
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.6153982877731323
-      Target Frame: docking_station
+      Pitch: 1.2147961854934692
+      Target Frame: <Fixed Frame>
       Value: ThirdPersonFollower (rviz)
-      Yaw: 1.54221773147583
+      Yaw: 5.687223434448242
     Saved: ~
 Window Geometry:
   Displays:
@@ -284,7 +530,7 @@ Window Geometry:
   Hide Right Dock: false
   Image:
     collapsed: false
-  QMainWindow State: 000000ff00000000fd000000040000000000000326000003a7fc0200000010fb0000001200530065006c0065006300740069006f006e00000001e10000009b0000005c00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007302000001ed000001df00000185000000a3fb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb000000100044006900730070006c006100790073010000003d000000c9000000c900fffffffb0000000a0049006d006100670065010000010c000000420000001600fffffffb0000000a0049006d0061006700650100000154000002740000001600fffffffb0000000a0049006d00610067006501000003ce000000160000001600fffffffb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c00000261fb0000000a0049006d006100670065010000016e000000160000000000000000fb0000000a0049006d0061006700650000000000ffffffff0000000000000000fb0000000a0049006d006100670065010000024f000001950000000000000000fb0000000800540069006d006500000002db0000003b0000003900fffffffb0000000a0049006d00610067006501000002f6000000ee0000000000000000000000010000010f000003a7fc0200000003fb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000000a00560069006500770073010000003d000003a7000000a400fffffffb0000001200530065006c0065006300740069006f006e010000025a000000b200000000000000000000000200000490000000a9fc0100000001fb0000000a00560069006500770073030000004e00000080000002e10000019700000003000008580000003efc0100000001fb0000000800540069006d00650100000000000004500000000000000000000002fc000003a700000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd000000040000000000000326000003a7fc0200000012fb0000001200530065006c0065006300740069006f006e00000001e10000009b0000005c00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007302000001ed000001df00000185000000a3fb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb000000100044006900730070006c006100790073010000003d000000f4000000c900fffffffb0000000a0049006d00610067006501000001370000005b0000001600fffffffb0000000a0049006d00610067006500000002ae000000fc0000001600fffffffb0000000a0049006d0061006700650100000198000000310000001600fffffffb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c00000261fb0000000a0049006d00610067006501000001cf000001450000001600fffffffb0000000a0049006d0061006700650000000000ffffffff0000000000000000fb0000000a0049006d006100670065010000024f000001950000000000000000fb0000000800540069006d006500000002db0000003b0000003900fffffffb0000000a0049006d00610067006501000002f6000000ee0000000000000000fb0000000a0049006d00610067006501000002470000019d0000000000000000fb0000000a0049006d006100670065010000031a000000ca0000001600ffffff000000010000010f000003a7fc0200000003fb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000000a00560069006500770073010000003d000003a7000000a400fffffffb0000001200530065006c0065006300740069006f006e010000025a000000b200000000000000000000000200000490000000a9fc0100000001fb0000000a00560069006500770073030000004e00000080000002e10000019700000003000008580000003efc0100000001fb0000000800540069006d00650100000000000004500000000000000000000002fc000003a700000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Selection:
     collapsed: false
   Time:
