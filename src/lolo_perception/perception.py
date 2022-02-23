@@ -107,6 +107,9 @@ class Perception:
 
             if dsPose:
                 if dsPose.rmse < dsPose.rmseMax:
+                    # TODO: Do this is pose_estimation.py?
+                    if estDSPose:
+                        dsPose.detectionCount += estDSPose.detectionCount
                     poseAquired = True
 
                 rmseColor = (0,255,0) if poseAquired else (0,0,255)

@@ -150,6 +150,11 @@ class PerceptionNode:
                         estDSPose = None
                     else:
                         estDSPose = dsPose
+                        # TODO: this should be done elsewhere
+                        if dsPose.detectionCount >= 5:
+                            poseAquired = True
+                        else:
+                            poseAquired = False
 
                     tElapsed = time.time() - tStart
                     hz = 1/tElapsed

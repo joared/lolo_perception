@@ -93,6 +93,10 @@ class DSPose:
         self._rmse = None
         self._rmseMax = None
 
+        # increase this to keep track of how many valid poses have 
+        # been detected in sequence
+        self.detectionCount = 1
+
     @property
     def rmse(self):
         if self._rmse:

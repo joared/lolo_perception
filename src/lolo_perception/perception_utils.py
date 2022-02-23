@@ -2,6 +2,7 @@ import cv2 as cv
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
+
 def plotPoseImageInfo(poseImg,
                       dsPose,
                       camera,
@@ -21,6 +22,14 @@ def plotPoseImageInfo(poseImg,
             roiColor = (0, 0, 255)
         if roiCnt is not None:
             cv.drawContours(poseImg, [roiCnt], -1, roiColor, 3)
+
+            cv.putText(poseImg, 
+                       "#{}".format(dsPose.detectionCount), 
+                       (roiCnt[0][0]-10, roiCnt[0][1]-10), 
+                       cv.FONT_HERSHEY_SIMPLEX, 
+                       fontScale=1, 
+                       thickness=2, 
+                       color=(0,255,0))
 
         plotAxis(poseImg, 
                 dsPose.translationVector, 
