@@ -6,10 +6,12 @@ import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation as R
 
 class InverseTransformNode:
-    def __init__(self, trans1Name, trans2Name, referenceFrame=None, bufferLength=500):
+    def __init__(self, trans1Name, trans2Name, referenceFrame=None, bufferLength=500, movingErrAverage=1):
         self.trans1Name = trans1Name
         self.trans2Name = trans2Name
         self.referenceFrame = referenceFrame if referenceFrame else trans1Name
+
+        self.movingErrAverage = movingErrAverage
 
         self.bufferLength = bufferLength
         
@@ -65,14 +67,35 @@ class InverseTransformNode:
                 self.poses2 = self.poses2[-self.bufferLength:]
                 self.diffs = self.diffs[-self.bufferLength:]
                 
-                for i, c in enumerate(["r", "g", "b"]):
+                titles = ["X", "Y", "Z"]
+                colors = ["r", "g", "b"]
+                for i, (c, title) in enumerate(zip(colors, titles)):
                     plt.subplot(3, 2, 2*i+1)
                     plt.cla()
+                    plt.gca().set_ylabel(title)
+
                     plt.plot([p[i] for p in self.poses1], color=c)
                     plt.plot([p[i] for p in self.poses2], "-o", color=c)
+
                     plt.subplot(3, 2, 2*i+2)
                     plt.cla()
-                    plt.plot([d[i] for d in self.diffs], color=c)
+                    if i == 0:
+                        plt.title("Average error, {} samples".format(self.movingErrAverage))
+                    
+                    diffs = [d[i] for d in self.diffs]
+                    if self.movingErrAverage > 1:
+                        n = self.movingErrAverage
+                        diffs = list(np.convolve(diffs, np.ones(n)/n, mode="same"))
+
+                    # center error around 0
+                    yAbsMax = max(diffs, key=abs)
+                    marginP = 0.1
+                    yAbsMax += yAbsMax*marginP
+                    plt.gca().set_ylim(ymin=-yAbsMax, ymax=yAbsMax)
+
+                    # zeros reference line
+                    plt.plot(np.zeros(len(diffs)), "--", color="gray")
+                    plt.plot(diffs, color=c)
 
                 plt.pause(0.001)
             rate.sleep()
@@ -82,6 +105,7 @@ if __name__ == '__main__':
     invTransNode = InverseTransformNode("docking_station/feature_model_link", 
                                         "docking_station/feature_model_estimated_link", 
                                         referenceFrame="lolo_camera_link", 
-                                        bufferLength=10)
+                                        bufferLength=50,
+                                        movingErrAverage=5)
 
     invTransNode.run()
