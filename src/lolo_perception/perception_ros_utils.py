@@ -29,8 +29,6 @@ def vectorToPose(frameID, translationVector, rotationVector, covariance, timeSta
     return p
 
 def vectorToTransform(frameID, childFrameID, translationVector, rotationVector, timeStamp=None):
-    global posePublisher, transformPublisher
-
     t = TransformStamped()
     t.header.stamp = timeStamp if timeStamp else rospy.Time.now()
     t.header.frame_id = frameID
@@ -44,6 +42,18 @@ def vectorToTransform(frameID, childFrameID, translationVector, rotationVector, 
     rotMatHom = np.vstack((rotMatHom, np.array([0, 0, 0, 1])))
     q = quaternion_from_matrix(rotMatHom)
     t.transform.rotation = Quaternion(*q)
+    return t
+
+def vectorQuatToTransform(frameID, childFrameID, translationVector, quaternion, timeStamp=None):
+    t = TransformStamped()
+    t.header.stamp = timeStamp if timeStamp else rospy.Time.now()
+    t.header.frame_id = frameID
+    t.child_frame_id = childFrameID
+    t.transform.translation.x = translationVector[0]
+    t.transform.translation.y = translationVector[1]
+    t.transform.translation.z = translationVector[2]
+
+    t.transform.rotation = Quaternion(*quaternion)
     return t
 
 def poseToVector(pose):
