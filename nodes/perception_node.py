@@ -85,7 +85,7 @@ class PerceptionNode:
 
         timeStamp = rospy.Time.now()
         # publish pose if pose has been aquired
-        if publishPose and poseAquired:
+        if publishPose and poseAquired and dsPose.detectionCount >= 10:
             # publish transform
             dsTransform = vectorToTransform("lolo_camera_link", 
                                             "docking_station/feature_model_estimated_link", 
@@ -150,11 +150,6 @@ class PerceptionNode:
                         estDSPose = None
                     else:
                         estDSPose = dsPose
-                        # TODO: this should be done elsewhere
-                        if dsPose.detectionCount >= 5:
-                            poseAquired = True
-                        else:
-                            poseAquired = False
 
                     tElapsed = time.time() - tStart
                     hz = 1/tElapsed
