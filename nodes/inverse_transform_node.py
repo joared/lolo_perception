@@ -130,7 +130,7 @@ class InverseTransformNode:
             plt.gca().set_ylabel(title)
 
             plt.plot([p[i] for p in poses1], color=c)
-            plt.plot([p[i] for p in poses2], "-o", color=c)
+            plt.plot([p[i] for p in poses2], "-o", markersize=2, color=c)
 
             plt.subplot(subPlotRows, subPlotCols, 2*i+2)
             plt.cla()
@@ -164,7 +164,7 @@ class InverseTransformNode:
 
             # plot in degrees
             plt.plot([p[3+i] for p in poses1], color=c)
-            plt.plot([p[3+i] for p in poses2], "-o", color=c)
+            plt.plot([p[3+i] for p in poses2], "-o", markersize=2, color=c)
 
             plt.subplot(subPlotRows, subPlotCols, 2*i+2 + subPlotRows)
             plt.cla()
