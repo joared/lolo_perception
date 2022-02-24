@@ -236,49 +236,60 @@ class InverseTransformNode:
         plotIdx = int(hz / plotRate)
 
         i = 0
+        lastTime = 0
         while not rospy.is_shutdown():
             i += 1
             timeStamp = rospy.Time(0)
             pose1 = None
             pose2 = None
             try:
-                transl1, rot1 = self.listener.lookupTransform(self.referenceFrame, 
-                                                              self.trans1Name, 
-                                                              timeStamp)
+                t = self.listener.getLatestCommonTime(self.referenceFrame, self.trans1Name)
             except:
-                rospy.loginfo_throttle(2, "Transform 1 not found")
-            else:
-                pose1 = self.transToPose(transl1, rot1)
-
-            try:
-                transl2, rot2 = self.listener.lookupTransform(self.referenceFrame, 
-                                                              self.trans2Name, 
-                                                              timeStamp)
-            except:
-                rospy.loginfo_throttle(2, "Transform 2 not found")
-            else:
-                pose2 = self.transToPose(transl2, rot2)
-
-            if not self.poses1 and (pose1 is None or pose2 is None):
                 rospy.loginfo_throttle(2, "Waiting for first transformation")
+                continue
+            
+            if t != lastTime:
+                lastTime = t
+                try:
+                    transl1, rot1 = self.listener.lookupTransform(self.referenceFrame, 
+                                                                self.trans1Name, 
+                                                                timeStamp)
+                except:
+                    rospy.loginfo_throttle(2, "Transform 1 not found")
+                else:
+                    pose1 = self.transToPose(transl1, rot1)
+
+                try:
+                    transl2, rot2 = self.listener.lookupTransform(self.referenceFrame, 
+                                                                self.trans2Name, 
+                                                                timeStamp)
+                except:
+                    rospy.loginfo_throttle(2, "Transform 2 not found")
+                else:
+                    pose2 = self.transToPose(transl2, rot2)
+
+                if not self.poses1 and (pose1 is None or pose2 is None):
+                    rospy.loginfo_throttle(2, "Waiting for first transformation")
+                else:
+                    if pose1 is None:
+                        pose1 = np.array([0.]*6)
+                    if pose2 is None:
+                        pose2 = np.array([0.]*6)
+
+                    self.poses1.append(pose1)
+                    self.poses2.append(pose2)
+                    self.diffs.append(pose1-pose2)
+
+                    self.poses1 = self.poses1[-self.bufferLength-self.movingErrAverage+1:]
+                    self.poses2 = self.poses2[-self.bufferLength-self.movingErrAverage+1:]
+                    self.diffs = self.diffs[-self.bufferLength-self.movingErrAverage+1:]
             else:
-                if pose1 is None:
-                    pose1 = np.array([0.]*6)
-                if pose2 is None:
-                    pose2 = np.array([0.]*6)
+                rospy.loginfo_throttle(2, "Found the same transformation 1, probably done here?")
 
-                self.poses1.append(pose1)
-                self.poses2.append(pose2)
-                self.diffs.append(pose1-pose2)
-
-                self.poses1 = self.poses1[-self.bufferLength-self.movingErrAverage+1:]
-                self.poses2 = self.poses2[-self.bufferLength-self.movingErrAverage+1:]
-                self.diffs = self.diffs[-self.bufferLength-self.movingErrAverage+1:]
-         
-                if i % plotIdx == 0:
-                    self.plotPose2()
-                    self.plot3D()
-                plt.pause(0.000001)
+            if i % plotIdx == 0:
+                self.plotPose2()
+                self.plot3D()
+            plt.pause(0.000001)
             
             
             rate.sleep()
