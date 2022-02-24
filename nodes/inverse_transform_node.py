@@ -87,6 +87,7 @@ class InverseTransformNode:
             plt.plot(diffs, color=c)
 
     def plotPose2(self):
+        plt.figure(self.fig.number)
         titles = ["X", "Y", "Z"]
         colors = ["r", "g", "b"]
         subPlotRows = 6
@@ -184,10 +185,26 @@ class InverseTransformNode:
         absMaxXYZ = max(absMaxXY, maxZ/2)
         self.ax.cla()
 
-        self.ax.set_xlim(-absMaxXYZ, absMaxXYZ)
+        self.ax.set_xlim(-absMaxXYZ*2, 0)
         self.ax.set_ylim(-absMaxXYZ, absMaxXYZ)
-        self.ax.set_zlim(0, absMaxXYZ*2)
+        self.ax.set_zlim(-absMaxXYZ, absMaxXYZ)
         
+        self.ax.plot(-poses2[:, 2], poses2[:, 0], -poses2[:, 1], "o", markersize=1.6, color="r")
+        self.ax.plot(-poses1[:, 2], poses1[:, 0], -poses1[:, 1], linewidth=1, color="g")
+
+        csCamera = CoordinateSystemArtist(scale=.4)
+        csCamera.cs.rotation = R.from_euler("XYZ", (-np.pi/2, -np.pi/2, 0)).as_dcm()
+        csCamera.draw(self.ax)
+
+        csLastPose = CoordinateSystemArtist(scale=.4)
+        lastTransl = self.poses2[-1][:3]
+        csLastPose.cs.translation = np.matmul(csCamera.cs.rotation, lastTransl) #np.array([-lastTransl[2], lastTransl[0], -lastTransl[1]])
+        ax, ay, az = self.poses2[-1][3:]
+        csLastPose.cs.rotation = R.from_euler("YXZ", (ay, ax, az)).as_dcm()
+        csLastPose.cs.rotation = np.matmul(csCamera.cs.rotation, csLastPose.cs.rotation)
+        csLastPose.draw(self.ax)
+
+        """
         self.ax.plot(poses2[:, 0], poses2[:, 1], poses2[:, 2], "-o", markersize=1.6, color="r")
         self.ax.plot(poses1[:, 0], poses1[:, 1], poses1[:, 2], linewidth=1, color="g")
 
@@ -199,6 +216,7 @@ class InverseTransformNode:
         ax, ay, az = self.poses2[-1][3:]
         csLastPose.cs.rotation = R.from_euler("YXZ", (ay, ax, az)).as_dcm()
         csLastPose.draw(self.ax)
+        """
 
     def transToPose(self, transl, rot):
         euler = R.from_quat(rot).as_euler("YXZ")
@@ -206,13 +224,20 @@ class InverseTransformNode:
         return np.array(pose)
 
     def run(self):
-        rate = rospy.Rate(10)
+        hz = 30.0
+        rate = rospy.Rate(hz)
         #rospy.Timer(rospy.Duration(1.0/2.0), lambda event: self.plot3D())
-        self.fig = plt.gcf()
-        self.fig.add_subplot(projection="3d")
-        self.ax = Axes3D(self.fig)
+        self.fig = plt.figure()
+        self.fig3D = plt.figure()
+        self.fig3D.add_subplot(projection="3d")
+        self.ax = Axes3D(self.fig3D)
 
+        plotRate = 1.0
+        plotIdx = int(hz / plotRate)
+
+        i = 0
         while not rospy.is_shutdown():
+            i += 1
             timeStamp = rospy.Time(0)
             pose1 = None
             pose2 = None
@@ -250,8 +275,9 @@ class InverseTransformNode:
                 self.poses2 = self.poses2[-self.bufferLength-self.movingErrAverage+1:]
                 self.diffs = self.diffs[-self.bufferLength-self.movingErrAverage+1:]
          
-                #self.plotPose2()
-                self.plot3D()
+                if i % plotIdx == 0:
+                    self.plotPose2()
+                    self.plot3D()
                 plt.pause(0.000001)
             
             
