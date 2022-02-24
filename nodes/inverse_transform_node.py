@@ -100,6 +100,12 @@ class InverseTransformNode:
         poses2 = np.array(self.poses2[self.movingErrAverage-1:])
 
         diffs = np.array(self.diffs)
+
+        # use degrees
+        poses1[:, 3:] = np.rad2deg(poses1[:, 3:])
+        poses2[:, 3:] = np.rad2deg(poses2[:, 3:])
+        diffs[:, 3:] = np.rad2deg(diffs[:, 3:])
+
         if self.movingErrAverage > 1:
             n = self.movingErrAverage
             newDiffs = np.zeros(poses1.shape)
@@ -156,6 +162,7 @@ class InverseTransformNode:
             plt.cla()
             plt.gca().set_ylabel(title)
 
+            # plot in degrees
             plt.plot([p[3+i] for p in poses1], color=c)
             plt.plot([p[3+i] for p in poses2], "-o", color=c)
 
@@ -220,7 +227,7 @@ class InverseTransformNode:
         csLastPose = CoordinateSystemArtist(scale=.4)
         lastTransl = self.poses2[-1][:3]
         csLastPose.cs.translation = np.matmul(csCamera.cs.rotation, lastTransl) #np.array([-lastTransl[2], lastTransl[0], -lastTransl[1]])
-        ax, ay, az = self.poses2[-1][3:]
+        az, ax, ay = self.poses2[-1][3:]
         csLastPose.cs.rotation = R.from_euler("YXZ", (ay, ax, az)).as_dcm()
         csLastPose.cs.rotation = np.matmul(csCamera.cs.rotation, csLastPose.cs.rotation)
         csLastPose.draw(self.ax)
@@ -240,12 +247,12 @@ class InverseTransformNode:
         """
 
     def transToPose(self, transl, rot):
-        euler = R.from_quat(rot).as_euler("YXZ")
-        pose = list(transl) + [euler[2], euler[1], euler[0]] # [x, y, z, roll, pitch yaw]
+        ay, ax, az = R.from_quat(rot).as_euler("YXZ")
+        pose = list(transl) + [az, ax, ay] # [x, y, z, roll, pitch yaw]
         return np.array(pose)
 
     def run(self):
-        hz = 30.0
+        hz = 10.0
         rate = rospy.Rate(hz)
         #rospy.Timer(rospy.Duration(1.0/2.0), lambda event: self.plot3D())
         self.fig = plt.figure()
@@ -253,7 +260,7 @@ class InverseTransformNode:
         self.fig3D.add_subplot(projection="3d")
         self.ax = Axes3D(self.fig3D)
 
-        plotRate = 1.0
+        plotRate = 10.0
         plotIdx = int(hz / plotRate)
 
         i = 0
