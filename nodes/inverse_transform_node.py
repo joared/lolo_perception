@@ -138,6 +138,14 @@ class InverseTransformNode:
             # zeros reference line
             plt.plot(np.zeros(len(diffs)), "--", color="gray")
 
+            # average error
+            avgDiff = np.average(diffs[:, i])
+            plt.plot(np.ones(len(diffs))*avgDiff, "--", color=c)
+
+            plt.gca().yaxis.set_label_position("right")
+            plt.gca().yaxis.tick_right()
+            plt.gca().set_ylabel("Avg: {}".format(round(avgDiff, 2)))
+
             plt.plot(diffs[:, i], color=c)
 
         # plot orientation
@@ -159,6 +167,14 @@ class InverseTransformNode:
 
             # zeros reference line
             plt.plot(np.zeros(len(diffs)), "--", color="gray")
+
+            # average error
+            avgDiff = np.average(diffs[:, 3+i])
+            plt.plot(np.ones(len(diffs))*avgDiff, "--", color=c)
+
+            plt.gca().yaxis.set_label_position("right")
+            plt.gca().yaxis.tick_right()
+            plt.gca().set_ylabel("Avg: {}".format(round(avgDiff, 2)))
 
             plt.plot(diffs[:, 3+i], color=c)
 
