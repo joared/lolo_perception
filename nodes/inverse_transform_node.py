@@ -190,7 +190,12 @@ class InverseTransformNode:
         self.ax.set_zlim(-absMaxXYZ, absMaxXYZ)
         
         self.ax.plot(-poses2[:, 2], poses2[:, 0], -poses2[:, 1], "o", markersize=1.6, color="r")
-        self.ax.plot(-poses1[:, 2], poses1[:, 0], -poses1[:, 1], linewidth=1, color="g")
+        self.ax.plot(-poses1[:, 2], poses1[:, 0], -poses1[:, 1], linewidth=1.6, color="g")
+
+        # plot reference line so that it is possible to determine what measurement is
+        # associated with what ground truth
+        for p1, p2 in zip(poses1, poses2):
+            self.ax.plot([-p1[2], -p2[2]], [p1[0], p2[0]], [-p1[1], -p2[1]], "-", linewidth=0.3, color="lightcoral")
 
         csCamera = CoordinateSystemArtist(scale=.4)
         csCamera.cs.rotation = R.from_euler("XYZ", (-np.pi/2, -np.pi/2, 0)).as_dcm()
@@ -247,7 +252,7 @@ class InverseTransformNode:
             except:
                 rospy.loginfo_throttle(2, "Waiting for first transformation")
                 continue
-            
+
             if t != lastTime:
                 lastTime = t
                 try:
