@@ -57,6 +57,9 @@ def vectorQuatToTransform(frameID, childFrameID, translationVector, quaternion, 
     return t
 
 def poseToVector(pose):
+    """
+    PoseWithCovarianceStamped -> vector
+    """
     translationVector = np.array([pose.pose.pose.position.x, 
                                   pose.pose.pose.position.y, 
                                   pose.pose.pose.position.z])

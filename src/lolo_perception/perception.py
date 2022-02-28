@@ -2,8 +2,9 @@ import cv2 as cv
 import time
 import numpy as np
 import itertools
+from scipy.spatial.transform import Rotation as R
 
-from lolo_perception.feature_extraction import featureAssociation, AdaptiveThreshold2, AdaptiveThresholdPeak
+from lolo_perception.feature_extraction import featureAssociation, regionOfInterest, AdaptiveThreshold2, AdaptiveThresholdPeak
 from lolo_perception.pose_estimation import DSPoseEstimator
 from lolo_perception.perception_utils import plotPoseImageInfo
 
@@ -50,9 +51,40 @@ class Perception:
         # an orientation within the valid range 
         self.validOrientationRange = [np.radians(35), np.radians(30), np.radians(15)]
 
+        # This should be sent in as an argument (deducted from some state estimator)
+        # and is used to update the estimated pose (estDSPose) for better prediction of the ROI
+        self.estCameraPoseVector = np.array([0.]*6) # [x, y, z, ax, ay, az]
+
+    def updateDSPoseFromNewCameraPose(self, estDSPose, estCameraPoseVector):
+        if self.estCameraPoseVector is not None:
+            print("Updating estDSPose")
+            c1ToGTransl = self.estCameraPoseVector[:3]
+            c1ToGRot = R.from_rotvec(self.estCameraPoseVector[3:])
+            c2ToGTransl = estCameraPoseVector[:3]
+            c2ToGRot = R.from_rotvec(estCameraPoseVector[3:])
+            dsToC1Transl = estDSPose.translationVector
+            dsToC1Rot = R.from_rotvec(estDSPose.rotationVector)
+
+            gToC1Rot = c1ToGRot.inv()
+            gToC2Rot = c2ToGRot.inv()
+            c2ToC1Transl = gToC1Rot.apply(c2ToGTransl-c1ToGTransl)
+            #c2ToC1Transl[2] = 0 # disregard displacement in z
+            c1ToC2Rot = gToC2Rot*c1ToGRot
+
+            dsToC2Transl = c1ToC2Rot.apply(dsToC1Transl-c2ToC1Transl)
+            dsToC2Rot = gToC2Rot*c1ToGRot*dsToC1Rot
+
+            estDSPose.translationVector = dsToC2Transl
+            estDSPose.rotationVector = dsToC2Rot.as_rotvec()
+
+        return estDSPose
+
     def estimatePose(self, 
                      imgColor, 
-                     estDSPose=None):
+                     estDSPose=None,
+                     estCameraPoseVector=None):
+
+        #estCameraPoseVector = None ###
 
         # Keeping track of FPS
         start = time.time()
@@ -73,10 +105,15 @@ class Perception:
             # if we are not given an estimated pose, we initialize
             self.featureExtractor = self.peakFeatureExtractor
         else:
+            if estCameraPoseVector is not None:
+                estDSPose = self.updateDSPoseFromNewCameraPose(estDSPose, estCameraPoseVector)
+                self.estCameraPoseVector = estCameraPoseVector
             if all([ls.area > self.hatsFeatureExtractor.minArea for ls in estDSPose.associatedLightSources]):
                 # change to hats
                 self.featureExtractor = self.hatsFeatureExtractor
-        
+
+        #featurePointsGuess = estDSPose.reProject()
+        #(x, y, w, h), roiCnt = regionOfInterest(featurePointsGuess, wMargin=self.roiMargin, hMargin=self.roiMargin)
         # extract light source candidates from image
         _, candidates, roiCnt = self.featureExtractor(gray, 
                                                       maxAdditionalCandidates=self.maxAdditionalCandidates, 
@@ -141,15 +178,15 @@ class Perception:
                 print("Pose estimation failed")
 
         
-        if dsPose:
-            # plots pose axis, ROI, light sources etc.  
-            plotPoseImageInfo(poseImg,
-                              dsPose,
-                              self.camera,
-                              self.featureModel,
-                              poseAquired,
-                              self.validOrientationRange,
-                              roiCnt)
+        #if dsPose:
+        # plots pose axis, ROI, light sources etc.  
+        plotPoseImageInfo(poseImg,
+                          dsPose,
+                          self.camera,
+                          self.featureModel,
+                          poseAquired,
+                          self.validOrientationRange,
+                          roiCnt)
 
         elapsed = time.time()-start
         cv.putText(poseImg, 

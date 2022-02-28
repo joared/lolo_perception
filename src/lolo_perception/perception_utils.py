@@ -11,8 +11,10 @@ def plotPoseImageInfo(poseImg,
                       validOrientationRange,
                       roiCnt=None):
 
-    validYaw, validPitch, validRoll = dsPose.validOrientation(*validOrientationRange)
-    validOrientation = validYaw and validPitch and validRoll
+    validOrientation = False
+    if dsPose:
+        validYaw, validPitch, validRoll = dsPose.validOrientation(*validOrientationRange)
+        validOrientation = validYaw and validPitch and validRoll
 
     if poseAquired:
         axisColor = None
@@ -30,30 +32,30 @@ def plotPoseImageInfo(poseImg,
                        fontScale=1, 
                        thickness=2, 
                        color=(0,255,0))
+        if dsPose:
+            plotAxis(poseImg, 
+                    dsPose.translationVector, 
+                    dsPose.rotationVector, 
+                    camera, 
+                    featureModel.features, 
+                    featureModel.maxRad, # scaling for the axis shown
+                    color=axisColor,
+                    thickness=5) 
+    if dsPose:
+        plotPoseInfo(poseImg, 
+                    dsPose.translationVector, 
+                    dsPose.rotationVector,
+                    yawColor=(0,255,0) if validYaw else (0,0,255),
+                    pitchColor=(0,255,0) if validPitch else (0,0,255),
+                    rollColor=(0,255,0) if validRoll else (0,0,255))
 
-        plotAxis(poseImg, 
-                dsPose.translationVector, 
-                dsPose.rotationVector, 
-                camera, 
-                featureModel.features, 
-                featureModel.maxRad, # scaling for the axis shown
-                color=axisColor,
-                thickness=5) 
-        
-    plotPoseInfo(poseImg, 
-                 dsPose.translationVector, 
-                 dsPose.rotationVector,
-                 yawColor=(0,255,0) if validYaw else (0,0,255),
-                 pitchColor=(0,255,0) if validPitch else (0,0,255),
-                 rollColor=(0,255,0) if validRoll else (0,0,255))
-
-    plotPosePoints(poseImg, 
-                dsPose.translationVector, 
-                dsPose.rotationVector, 
-                camera, 
-                featureModel.features, 
-                color=(0, 0, 255))
-    plotPoints(poseImg, [ls.center for ls in dsPose.associatedLightSources], (255, 0, 0), radius=5)
+        plotPosePoints(poseImg, 
+                    dsPose.translationVector, 
+                    dsPose.rotationVector, 
+                    camera, 
+                    featureModel.features, 
+                    color=(0, 0, 255))
+        plotPoints(poseImg, [ls.center for ls in dsPose.associatedLightSources], (255, 0, 0), radius=5)
 
     plotCrosshair(poseImg, camera)
 
