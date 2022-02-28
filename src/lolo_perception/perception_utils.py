@@ -9,7 +9,8 @@ def plotPoseImageInfo(poseImg,
                       featureModel,
                       poseAquired,
                       validOrientationRange,
-                      roiCnt=None):
+                      roiCnt=None,
+                      roiCntUpdated=None):
 
     validOrientation = False
     if dsPose:
@@ -23,8 +24,9 @@ def plotPoseImageInfo(poseImg,
             axisColor = (0, 0, 255)
             roiColor = (0, 0, 255)
         if roiCnt is not None:
-            cv.drawContours(poseImg, [roiCnt], -1, roiColor, 3)
-
+            cv.drawContours(poseImg, [roiCnt], -1, (100,100,100), 3)
+            cv.drawContours(poseImg, [roiCntUpdated], -1, roiColor, 3)
+            
             cv.putText(poseImg, 
                        "#{}".format(dsPose.detectionCount), 
                        (roiCnt[0][0]-10, roiCnt[0][1]-10), 

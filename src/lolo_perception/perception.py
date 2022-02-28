@@ -100,11 +100,14 @@ class Perception:
 
         # ROI contour
         roiCnt = None
+        roiCntUpdated = None
 
         if not estDSPose:
             # if we are not given an estimated pose, we initialize
             self.featureExtractor = self.peakFeatureExtractor
         else:
+            featurePointsGuess = estDSPose.reProject()
+            _, roiCnt = regionOfInterest(featurePointsGuess, wMargin=self.roiMargin, hMargin=self.roiMargin)
             if estCameraPoseVector is not None:
                 estDSPose = self.updateDSPoseFromNewCameraPose(estDSPose, estCameraPoseVector)
                 self.estCameraPoseVector = estCameraPoseVector
@@ -112,18 +115,17 @@ class Perception:
                 # change to hats
                 self.featureExtractor = self.hatsFeatureExtractor
 
-        #featurePointsGuess = estDSPose.reProject()
-        #(x, y, w, h), roiCnt = regionOfInterest(featurePointsGuess, wMargin=self.roiMargin, hMargin=self.roiMargin)
+        
         # extract light source candidates from image
-        _, candidates, roiCnt = self.featureExtractor(gray, 
-                                                      maxAdditionalCandidates=self.maxAdditionalCandidates, 
-                                                      estDSPose=estDSPose,
-                                                      roiMargin=self.roiMargin, 
-                                                      drawImg=processedImg)
+        _, candidates, roiCntUpdated = self.featureExtractor(gray, 
+                                                             maxAdditionalCandidates=self.maxAdditionalCandidates, 
+                                                             estDSPose=estDSPose,
+                                                             roiMargin=self.roiMargin, 
+                                                             drawImg=processedImg)
 
-        # return if pose has been aquired
+        # return if pose has been aquired or not
         poseAquired = False
-        # estimated pose
+        # new estimated pose
         dsPose = None
 
         if len(candidates) >= len(self.featureModel.features):
@@ -177,8 +179,6 @@ class Perception:
             else:
                 print("Pose estimation failed")
 
-        
-        #if dsPose:
         # plots pose axis, ROI, light sources etc.  
         plotPoseImageInfo(poseImg,
                           dsPose,
@@ -186,7 +186,8 @@ class Perception:
                           self.featureModel,
                           poseAquired,
                           self.validOrientationRange,
-                          roiCnt)
+                          roiCnt,
+                          roiCntUpdated)
 
         elapsed = time.time()-start
         cv.putText(poseImg, 
