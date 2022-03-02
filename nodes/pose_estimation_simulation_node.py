@@ -199,6 +199,8 @@ if __name__ =="__main__":
     cameraYaml = rospy.get_param("~camera_yaml")
     cameraYamlPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "camera_calibration_data/{}".format(cameraYaml))
     camera = Camera.fromYaml(cameraYamlPath)
+    camera.cameraMatrix = camera.projectionMatrix
+    camera.distCoeffs *= 0
 
     sim = PoseSimulation(camera, featureModel)
     sim.test2DNoiseError(sigmaX=2, sigmaY=2)

@@ -46,13 +46,22 @@ class Camera:
             calibData = yaml.load(file)
   
         projectionMatrix = np.array(calibData["projection_matrix"]["data"], dtype=np.float32).reshape((3,4))[:,:3]
+
+        cameraMatrix = np.array(calibData["camera_matrix"]["data"], dtype=np.float32).reshape((3,3))
+        distCoeffs = np.array(calibData["distortion_coefficients"]["data"], dtype=np.float32)
         resolution = calibData["image_height"], calibData["image_width"]
 
+        return Camera(cameraMatrix=cameraMatrix, 
+                      distCoeffs=distCoeffs,
+                      projectionMatrix=projectionMatrix,
+                      resolution=resolution)
+
+        """
         return Camera(cameraMatrix=projectionMatrix, 
                       distCoeffs=np.zeros((1,4), dtype=np.float32),
                       projectionMatrix=None,
                       resolution=resolution)
-
+        """
 
 if __name__ == "__main__":
     pass
