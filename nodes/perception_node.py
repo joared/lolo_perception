@@ -6,6 +6,7 @@ import rospy
 import tf.msg
 from sensor_msgs.msg import Image, CameraInfo
 from geometry_msgs.msg import PoseWithCovarianceStamped, PoseArray
+from std_msgs.msg import Float32
 import time
 import numpy as np
 import itertools
@@ -42,6 +43,7 @@ class PerceptionNode:
 
         # publish estimated pose
         self.posePublisher = rospy.Publisher('docking_station/feature_model/estimated_pose', PoseWithCovarianceStamped, queue_size=1)
+        self.mahalanobisDistPub = rospy.Publisher('docking_station/feature_model/estimated_pose/maha_dist', Float32, queue_size=1)
 
         # publish transform of estimated pose
         self.transformPublisher = rospy.Publisher("/tf", tf.msg.tfMessage, queue_size=1)
@@ -125,7 +127,10 @@ class PerceptionNode:
                 dsPose.covariance,
                 timeStamp=timeStamp)
                 )
-
+            # publish mahalanobis distance
+            if not dsPose.mahaDist:
+                dsPose.calcMahalanobisDist(estDSPose)
+            self.mahalanobisDistPub.publish(Float32(dsPose.mahaDist))
 
         if publishImages:
             self.imgProcDrawPublisher.publish(self.bridge.cv2_to_imgmsg(processedImg))

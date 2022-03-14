@@ -4,7 +4,7 @@ import numpy as np
 import time
 from matplotlib import pyplot as plt
 from mpl_toolkits import mplot3d
-from scipy.spatial.transform import Rotation as R, rotation
+from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
 import scipy
 from lolo_perception.perception_utils import projectPoints, reprojectionError
@@ -15,6 +15,16 @@ from lolo_perception.reprojection_utils import calcPoseReprojectionRMSEThreshold
 
 from numpy.linalg import lapack_lite
 #lapack_routine = lapack_lite.dgesv
+
+def calcMahalanobisDist(estDSPose, dsPose):
+    S = estDSPose.covariance
+    translErr = estDSPose.translationVector - dsPose.translationVector
+    translErr *= 0
+    rotationErr = estDSPose.rotationVector - dsPose.rotationVector
+    err = np.array(list(translErr) + list(rotationErr))
+    mahaDist = np.matmul(np.matmul(err, np.linalg.inv(S)), err.transpose())
+    
+    return mahaDist
 
 # Looking one step deeper, we see that solve performs many sanity checks.  
 # Stripping these, we have:
@@ -37,6 +47,38 @@ def fastInverse(A):
         return b
 
     return np.array([lapack_inverse(a) for a in A])
+
+def calcPoseCovarianceFixedAxis(camera, featureModel, translationVector, rotationVector, pixelCovariance):
+
+    # some magic to convert to fixed axis
+    r = R.from_rotvec(rotationVector)
+    featuresTemp = r.apply(featureModel.features)
+    rotationVector = np.array([0., 0., 0.])
+
+    _, jacobian = cv.projectPoints(featuresTemp, 
+                                   rotationVector.reshape((3, 1)), 
+                                   translationVector.reshape((3, 1)), 
+                                   camera.cameraMatrix, 
+                                   camera.distCoeffs)
+
+    rotJ = jacobian[:, :3]
+    transJ = jacobian[:, 3:6]
+    J = np.hstack((transJ, rotJ)) # reorder covariance as used in PoseWithCovarianceStamped
+
+    # How to rotate covariance: https://robotics.stackexchange.com/questions/2556/how-to-rotate-covariance
+
+    sigma = scipy.linalg.block_diag(*[pixelCovariance]*len(featureModel.features))
+
+    sigmaInv = np.linalg.inv(sigma)
+    #sigmaInv = fastInverse(np.reshape(sigma, (sigma.shape[0], sigma.shape[1], 1))).reshape(sigma.shape)
+    try:
+        mult = np.matmul(np.matmul(J.transpose(), sigmaInv), J)
+        covariance = np.linalg.inv(mult)
+        #covariance = fastInverse(np.reshape(mult, (mult.shape[0], mult.shape[1], 1))).reshape(mult.shape)
+    except np.linalg.LinAlgError as e:
+        print("Singular matrix")
+
+    return covariance
 
 def calcPoseCovariance(camera, featureModel, translationVector, rotationVector, pixelCovariance):
     _, jacobian = cv.projectPoints(featureModel.features, 
@@ -93,6 +135,8 @@ class DSPose:
         self._rmse = None
         self._rmseMax = None
 
+        self.mahaDist = None
+
         # increase this to keep track of how many valid poses have 
         # been detected in sequence
         self.detectionCount = 1
@@ -124,6 +168,11 @@ class DSPose:
             return self._camCovariance
         else:
             return np.zeros((6, 6))
+
+    def calcMahalanobisDist(self, estDSPose):
+        mahaDist = calcMahalanobisDist(estDSPose, self)
+        self.mahaDist = mahaDist
+        return self.mahaDist
 
     def reProject(self):
         return projectPoints(self.translationVector, 
@@ -172,11 +221,11 @@ class DSPose:
             sigmaY = self.rmseMax/4
             pixelCovariance = np.array([[sigmaX**2, 0], [0, sigmaY**2]])
 
-        covariance = calcPoseCovariance(self.camera, 
-                                        self.featureModel, 
-                                        self.translationVector, 
-                                        self.rotationVector, 
-                                        pixelCovariance)
+        covariance = calcPoseCovarianceFixedAxis(self.camera, 
+                                                 self.featureModel, 
+                                                 self.translationVector, 
+                                                 self.rotationVector, 
+                                                 pixelCovariance)
 
         self._covariance = covariance
 

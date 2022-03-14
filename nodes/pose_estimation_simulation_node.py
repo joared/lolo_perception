@@ -17,7 +17,7 @@ from cv_bridge import CvBridge, CvBridgeError
 from sensor_msgs.msg import Image
 
 from lolo_perception.feature_extraction import LightSource
-from lolo_perception.pose_estimation import DSPoseEstimator, calcPoseCovariance
+from lolo_perception.pose_estimation import DSPoseEstimator, calcPoseCovarianceFixedAxis
 from lolo_perception.perception_utils import plotPosePoints, plotPoints, plotAxis, projectPoints, plotPosePointsWithReprojection
 from lolo_perception.perception_ros_utils import vectorToPose, vectorToTransform, featurePointsToMsg
 
@@ -141,7 +141,7 @@ class PoseSimulation:
             
             # calculates covariance based on max reprojection rmse from feature uncertainty
             dsPoseNoised.calcCovariance()
-            trueCovariance = calcPoseCovariance(camera, featureModel, trueTrans, trueRotation, pixelCovariance)
+            trueCovariance = calcPoseCovarianceFixedAxis(camera, featureModel, trueTrans, trueRotation, pixelCovariance)
          
             timeStamp = rospy.Time.now()
 

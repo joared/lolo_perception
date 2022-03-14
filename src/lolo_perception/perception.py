@@ -5,7 +5,7 @@ import itertools
 from scipy.spatial.transform import Rotation as R
 
 from lolo_perception.feature_extraction import featureAssociation, regionOfInterest, AdaptiveThreshold2, AdaptiveThresholdPeak
-from lolo_perception.pose_estimation import DSPoseEstimator
+from lolo_perception.pose_estimation import DSPoseEstimator, calcMahalanobisDist
 from lolo_perception.perception_utils import plotPoseImageInfo
 
 class Perception:
@@ -51,6 +51,9 @@ class Perception:
         # an orientation within the valid range 
         self.validOrientationRange = [np.radians(35), np.radians(30), np.radians(15)]
 
+        # mahalanobis distance threshold
+        self.mahalanobisDistThresh = 12.592
+
         # This should be sent in as an argument (deducted from some state estimator)
         # and is used to update the estimated pose (estDSPose) for better prediction of the ROI
         self.estCameraPoseVector = np.array([0.]*6) # [x, y, z, ax, ay, az]
@@ -76,6 +79,13 @@ class Perception:
 
             estDSPose.translationVector = dsToC2Transl
             estDSPose.rotationVector = dsToC2Rot.as_rotvec()
+
+            # increase covariance based on motion
+            #covR = np.ones((6,6), dtype=np.float32)
+            #translK = 1
+            # we only 
+            #covR[:3, :3] *= np.linalg.norm(c2ToC1Transl)*translK
+            #estDSPose._covariance += covR
 
         return estDSPose
 
@@ -146,8 +156,14 @@ class Perception:
 
             if dsPose:
                 if dsPose.rmse < dsPose.rmseMax:
+                    
                     # TODO: Do this is pose_estimation.py?
                     if estDSPose:
+                        # mahanalobis distance check
+                        mahaDist = dsPose.calcMahalanobisDist(estDSPose)
+                        if mahaDist <= self.mahalanobisDistThresh:
+                            # disregard poses with large mahalaobis distance
+                            pass
                         dsPose.detectionCount += estDSPose.detectionCount
                     poseAquired = True
 
