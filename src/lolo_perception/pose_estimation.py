@@ -329,18 +329,18 @@ class DSPoseEstimator:
                       self.featureModel)
 
     def findBestPose(self, associatedLightSourcePermutations, estDSPose=None, firstValid=False):
-	estTranslationVec = None
-	estRotationVec = None
-	if estDSPose:
-            estTranslationVec = estDSPose.translationVector
-            estRotationVec = estDSPose.rotationVector
+        estTranslationVec = None
+        estRotationVec = None
+        if estDSPose:
+                estTranslationVec = estDSPose.translationVector
+                estRotationVec = estDSPose.rotationVector
 
         poses = []
         rmseRatios = []
         for associtatedLights in associatedLightSourcePermutations:
             dsPose = self.estimatePose(associtatedLights, 
-                                       estTranslationVec=estTranslationVec, 
-                                       estRotationVec=estRotationVec)
+                                    estTranslationVec=estTranslationVec, 
+                                    estRotationVec=estRotationVec)
             
             if firstValid and dsPose.rmse < dsPose.rmseMax:
                 return dsPose
