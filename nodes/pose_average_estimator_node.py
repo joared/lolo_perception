@@ -10,6 +10,7 @@ import glob
 import time
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.spatial.transform import Rotation as R
 
 from lolo_perception.perception_ros_utils import vectorToPose, poseToVector
 
@@ -58,12 +59,15 @@ class PoseAverageEstimatorNode:
     def poseCallback(self, pose):
         self.frameID = pose.header.frame_id
         translationVector, rotationVector = poseToVector(pose)
-        self.estimator.add(translationVector, rotationVector)
+        fixedEuler = np.array(R.from_rotvec(rotationVector).as_euler("xyz"))
+        self.estimator.add(translationVector, fixedEuler)
 
     def calcPose(self):
         poseAvg = self.estimator.calcAverage()
         poseCov = self.estimator.calcCovariance()
-        return vectorToPose(self.frameID, poseAvg[:3], poseAvg[3:], poseCov)
+
+        rotVec = R.from_euler("xyz", poseAvg[3:]).as_rotvec()
+        return vectorToPose(self.frameID, poseAvg[:3], rotVec, poseCov)
 
     def run(self):
         rate = rospy.Rate(30)
