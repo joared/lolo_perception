@@ -17,7 +17,7 @@ from geometry_msgs.msg import PoseArray
 
 from lolo_perception.camera_model import Camera
 from lolo_perception.perception_ros_utils import readCameraYaml, msgToImagePoints
-from lolo_perception.feature_extraction import MeanShiftTracker, LightSourceTracker, RCFS, RCF, findPeakContourAt, circularKernel
+from lolo_perception.feature_extraction import MeanShiftTracker, LightSourceTracker, RCFS, RCF, findPeakContourAt, circularKernel, LightSourceTrackInitializer
 
 # for _analyzeImage
 from lolo_perception.feature_extraction import contourCentroid, findNPeaks, AdaptiveThresholdPeak, GradientFeatureExtractor, findAllPeaks, findPeaksDilation, peakThreshold, AdaptiveThreshold2, circularKernel, removeNeighbouringContours, removeNeighbouringContoursFromImg, AdaptiveOpen, maxShift, meanShift, drawInfo, medianContourAreaFromImg, findMaxPeaks, findMaxPeak
@@ -287,7 +287,7 @@ class MeanShiftAnalyzer:
             ms.update(gray, maxIter=10, drawImg=drawImg)
         cv.imshow("mean shift", drawImg)
 
-class LightSourceTrackAnalyzer:
+class _LightSourceTrackAnalyzer:
     def __init__(self):
         cv.imshow("Light source tracking", np.zeros((10,10)))
         cv.setMouseCallback("Light source tracking", self._click)
@@ -309,6 +309,36 @@ class LightSourceTrackAnalyzer:
         for tr in self.trackers:
             tr.update(gray, drawImg=drawImg)
         cv.imshow("Light source tracking", drawImg)
+
+class LightSourceTrackAnalyzer:
+    def __init__(self):
+        cv.imshow("Light source tracking", np.zeros((10,10)))
+        cv.setMouseCallback("Light source tracking", self._click)
+        self.lsTracker = LightSourceTrackInitializer()
+        self._newTrackerCenters = []
+        self._gray = None
+
+    def _click(self, event, x, y, flags, param):
+        if event == cv.EVENT_LBUTTONDOWN:
+            for tr in self.lsTracker.trackers:
+                if np.linalg.norm([x-tr.center[0], y-tr.center[1]]) < tr.patchRadius:
+                    self.lsTracker.trackers.remove(tr)
+                    break
+            else:
+                self._newTrackerCenters.append((x,y))
+                #self.lsTracker.trackers.append(LightSourceTracker((x,y), radius=10, maxPatchRadius=50, minPatchRadius=7))
+
+    def update(self, img):
+        drawImg = img.copy()
+        self._gray = cv.cvtColor(drawImg, cv.COLOR_BGR2GRAY)
+
+        self.lsTracker.update(self._gray, 
+                              newTrackerCenters=list(self._newTrackerCenters), 
+                              drawImg=drawImg)
+
+        self._newTrackerCenters = []
+        cv.imshow("Light source tracking", drawImg)
+
 
 class RCFAnalyzer:
     def __init__(self):
@@ -537,6 +567,12 @@ class ImageAnalyzeNode:
     def _analyzeImage(self, imgRect, nFeatures, mask=None):
         gray = cv.cvtColor(imgRect, cv.COLOR_BGR2GRAY)
         cv.imshow("gray", gray)
+        #peakFeatureExtractor = AdaptiveThresholdPeak(20, 
+        #                                             kernelSize=11, 
+        #                                             p=0.97)
+        
+        #lsTracker = LightSourceTrackInitializer()
+
         return gray
                 
         
@@ -1021,7 +1057,7 @@ class ImageAnalyzeNode:
             imgRect = self.camera.undistortImage(imgColorRaw).astype(np.uint8)
             self._publish(imgColorRaw, imgRect)
             print("Frame " + str(i))
-            #lightSourceAnalyzer.update(imgRect)
+            lightSourceAnalyzer.update(imgRect)
             #rcfAnalyzer.update(imgRect)
             #peakAnalyzer.update(imgRect)
             if analyzeImages:
@@ -1146,7 +1182,7 @@ if __name__ == "__main__":
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/usb_camera_720p_sim.yaml")
     rosbagFile = "sim_bag.bag"
     rosbagPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), join("rosbags", rosbagFile))
-    imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "/lolo/sim/camera_aft/image_color", startFrame=1, analyzeImages=True)
+    imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "/lolo/sim/camera_aft/image_color", startFrame=4000, analyzeImages=True)
 
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/usb_camera_720p_8.yaml")
     rosbagFile = "ice.bag"

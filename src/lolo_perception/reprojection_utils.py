@@ -151,12 +151,21 @@ if __name__ == "__main__":
     fx = 1406
     fy = 1411
     deltaE = 0.008545
-    points = np.array([(0, 6), (2, 6), (-2, 6)])
+    deltaE = 0.5
+    points = np.array([(-deltaE/2, 6), (deltaE/2, 6)])
 
     for p in points:
         reprErr = maxReprojectionError(p, fx, deltaE)
         print("Reprojection error: {}".format(reprErr))
 
     img = plotReprojection(points, cameraResolution, fx, deltaE, rangeMeter=10, fScale=1./20)
+
+    imgTemp = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+    zeroImg = imgTemp*0
+    imgTemp[np.where(imgTemp == zeroImg)] = 255
+    imgTemp = cv.cvtColor(imgTemp, cv.COLOR_GRAY2BGR)
+    #img = cv.bitwise_or(img, imgTemp)
+
     cv.imshow("reprojection", img)
+    #cv.imshow("temp", imgTemp)
     cv.waitKey(0)

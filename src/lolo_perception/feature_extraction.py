@@ -7,6 +7,7 @@ from scipy.spatial.transform import Rotation as R
 from perception_utils import plotPoints, projectPoints
 import rospy
 from sensor_msgs.msg import Image
+import itertools
 
 class PercentageThreshold:
     def __init__(self, p, thresholdType=cv.THRESH_BINARY):
@@ -670,7 +671,7 @@ def findMaxPeak(gray, p):
     maxIndx = np.unravel_index(np.argmax(gray), gray.shape)
     center = maxIndx[1], maxIndx[0]
 
-    return center, findPeakContourAt(gray, center, p)
+    return center, findPeakContourAt(threshImg, center, p)
 
 def _findMaxPeaks(gray, p, drawImg=None):
     grayMasked = gray.copy()
@@ -1039,10 +1040,23 @@ def featureAssociationWithGuess(detectedLightSources, featurePointGuess, associa
 
     return associatedLightSources
 
+def featureAssociationSquare(featurePoints, detectedLightSources, drawImg=None):
+    tlIdxF = None
+    trIdxF = None
+    blIdxF = None
+    brIdx = None
+
+    detectedLightSources = list(detectedLightSources)
+    detectedPoints = [ls.center for ls in detectedLightSources]
+    if len(detectedPoints) < len(featurePoints):
+        print("Not enough features detected")
+        return [], []
+
+    
 
 def featureAssociation(featurePoints, detectedLightSources, featurePointsGuess=None, drawImg=None):
     """
-    Assumes that the orientation of the feature model is approximately the identity matrix relative to the camera frame
+    Assumes that the orientation of the feature model is 0 around every axis relative to the camera frame
     i.e. x and y values can be handled directly in the image plane
     """
     detectedLightSources = list(detectedLightSources)
@@ -1113,8 +1127,8 @@ class LightSource:
         self.rmseUncertainty = self.radius
 
 class LightSourceTracker:
-    def __init__(self, center, radius, maxPatchRadius, minPatchRadius, p=.99):
-        self.intensity = 255 # TODO: should be initialized somehow
+    def __init__(self, center, intensity, radius, maxPatchRadius, minPatchRadius, p=.97):
+        self.intensity = intensity
         self.minIntensity = 20
         self.center = center
         self.radius = radius
@@ -1150,12 +1164,17 @@ class LightSourceTracker:
         #peakImgPatch = cv.bitwise_and(peakImgPatch, peakImgPatch, mask=cv.inRange(peakImgPatch, thresholdLower, thresholdUpper))
         #cv.imshow("thresholded peak img patch", peakImgPatch)
 
+        threshold = int(self.p*maxIntensity)
+        _, threshImgPatch = cv.threshold(peakImgPatch, threshold, 256, cv.THRESH_BINARY)
+
         while np.max(peakImgPatch) > 0 and np.max(peakImgPatch) == maxIntensity:
             y, x = np.unravel_index(np.argmax(peakImgPatch), peakImgPatch.shape)
+            
+            peakCntPatch, peakCnt = findPeakContourAt(threshImgPatch, (x,y), offset=(center[0]-patchRadius, center[1]-patchRadius))
             x += center[0]-patchRadius
             y += center[1]-patchRadius
-            peakCnt = findPeakContourAt(gray, (x,y), self.p)
-            peakCntPatch = peakCnt - np.array((center[0]-patchRadius, center[1]-patchRadius)) # if gray is gray, hehe
+
+            #peakCntPatch = peakCnt - np.array((center[0]-patchRadius, center[1]-patchRadius)) # if gray is gray, hehe
             peakImgPatch = cv.drawContours(peakImgPatch, [peakCntPatch], 0, (0), -1)
             #peakCnt += np.array((center[0]-patchRadius, center[1]-patchRadius)) # if gray is a patch
             for (cx,cy) in peakPositions:
@@ -1218,7 +1237,7 @@ class LightSourceTracker:
         if patch.shape[0] != patchKernel.shape[0] or patch.shape[1] != patchKernel.shape[1]:
             # TODO: what happens with "i" here?
             print("not right")
-            return
+            False
 
         #grayMasked = np.zeros(gray.shape, dtype=np.uint8)
         #grayMasked[center[1]-patchRadius:center[1]+patchRadius+1, center[0]-patchRadius:center[0]+patchRadius+1] = patch
@@ -1236,7 +1255,7 @@ class LightSourceTracker:
         if ret is None:
             #self.intensity = 255
             print("No peak detecteddddddddddd")
-            return
+            return False
 
         peakIntensity, peakCnt = ret
 
@@ -1260,7 +1279,66 @@ class LightSourceTracker:
             cv.circle(drawImg, self.center, self.patchRadius, (255,0,0), 1)
             cv.circle(drawImg, self.center, 1, (255,0,0), 3)
 
-    
+        return True
+
+class LightSourceTrackInitializer:
+    def __init__(self, radius=10, maxPatchRadius=50, minPatchRadius=7, p=0.97, maxIntensityChange=0.7, maxMovement=20):
+        self.radius = radius
+        self.maxPatchRadius = maxPatchRadius
+        self.minPatchRadius = minPatchRadius
+        self.p = p
+
+        self.maxMovement = maxMovement
+        self.maxIntensityChange = maxIntensityChange
+
+        self.trackers = []
+
+    def getMaskedImg(self, gray):
+        grayMasked = gray.copy()
+        for tr in self.trackers:
+            cv.circle(grayMasked, tr.center, tr.patchRadius, (0,0,0), -1)
+        
+        return grayMasked
+
+    def update(self, gray, newTrackerCenters=None, drawImg=None):
+
+        if newTrackerCenters is not None:
+            for center in newTrackerCenters:
+                self.trackers.append(LightSourceTracker(center,
+                                                        intensity=gray[center[1], center[0]], 
+                                                        radius=self.radius, 
+                                                        maxPatchRadius=self.maxPatchRadius, 
+                                                        minPatchRadius=self.minPatchRadius,
+                                                        p=self.p))
+
+        for tr in self.trackers:
+            center = tr.center
+            intensity = tr.intensity
+            success = tr.update(gray, drawImg=drawImg)
+            
+            if success:
+                newCenter = tr.center
+                newIntensity = tr.intensity
+
+                if np.linalg.norm([center[0]-newCenter[0], center[1]-newCenter[1]]) > self.maxMovement:
+                    print("Movement to large")
+                    self.trackers.remove(tr)
+
+                if newIntensity < intensity*self.maxIntensityChange:
+                    print(intensity)
+                    print(newIntensity)
+                    print("Intensity change to large")
+                    self.trackers.remove(tr)
+
+            else:
+                # TODO: remove tracker here?
+                pass
+
+        for tr1, tr2 in itertools.combinations(self.trackers, 2):
+            if tr1.center == tr2.center:
+                print("Trackers same place, removing one")
+                self.trackers.remove(tr2)
+
 class MeanShiftTracker:
     def __init__(self, center, radius, maxRadius, minRadius):
         self.center = center
@@ -1647,7 +1725,7 @@ class AdaptiveThreshold2:
 
 
 class AdaptiveThresholdPeak:
-    def __init__(self, nFeatures, kernelSize, p):
+    def __init__(self, nFeatures, kernelSize, p, maxIntensityChange):
         """
         try cv.THRESH_OTSU?
         """
@@ -1656,7 +1734,7 @@ class AdaptiveThresholdPeak:
         self.kernel = circularKernel(self.kernelSize)
         self.p = p
         self.img = np.zeros((10, 10), dtype=np.uint8) # store the last processed image
-
+        self.maxIntensityChange = maxIntensityChange
 
     def __call__(self, *args, **kwargs):
         return self.process(*args, **kwargs)
@@ -1688,7 +1766,7 @@ class AdaptiveThresholdPeak:
             gray = gray[y:y+h, x:x+w]
 
             minIntensity = min([ls.intensity for ls in estDSPose.associatedLightSources])
-            minIntensity = 0.8*minIntensity
+            minIntensity = self.maxIntensityChange*minIntensity
 
             # local max that are below 80% of the mean intensity of the previous light sources are discarded
             _, gray = cv.threshold(gray, minIntensity, 256, cv.THRESH_TOZERO)

@@ -4,7 +4,7 @@ import numpy as np
 import itertools
 from scipy.spatial.transform import Rotation as R
 
-from lolo_perception.feature_extraction import featureAssociation, regionOfInterest, AdaptiveThreshold2, AdaptiveThresholdPeak
+from lolo_perception.feature_extraction import featureAssociation, regionOfInterest, LightSourceTrackInitializer, AdaptiveThreshold2, AdaptiveThresholdPeak
 from lolo_perception.pose_estimation import DSPoseEstimator, calcMahalanobisDist
 from lolo_perception.perception_utils import plotPoseImageInfo
 
@@ -13,6 +13,14 @@ class Perception:
         self.camera = camera
         self.featureModel = featureModel
         
+        # Initialize light source tracker
+        self.lightSourceTracker = LightSourceTrackInitializer(radius=10, 
+                                                              maxPatchRadius=50, 
+                                                              minPatchRadius=7,
+                                                              p=0.97,
+                                                              maxIntensityChange=0.7,
+                                                              maxMovement=20)
+
         # Use HATS when light sources are "large"
         # This feature extractor sorts candidates based on area
         self.hatsFeatureExtractor = AdaptiveThreshold2(len(self.featureModel.features), 
@@ -20,12 +28,13 @@ class Perception:
                                                        minArea=10, 
                                                        minRatio=0.2,
                                                        thresholdType=cv.THRESH_BINARY)
-        
+
         # Use local peak finding to initialize and when light sources are small
         # This feature extractor sorts candidates based on intensity and then area
         self.peakFeatureExtractor = AdaptiveThresholdPeak(len(self.featureModel.features), 
                                                           kernelSize=11, 
-                                                          p=0.97)
+                                                          p=0.97,
+                                                          maxIntensityChange=0.7)
         
         # start with peak
         self.featureExtractor = self.peakFeatureExtractor
@@ -86,6 +95,13 @@ class Perception:
             # we only 
             #covR[:3, :3] *= np.linalg.norm(c2ToC1Transl)*translK
             #estDSPose._covariance += covR
+
+            # stages of the perception module:
+            # 1 - initialize light source trackers
+            # 2 - track light sources
+            # 3 - initialize pose
+            # 4 - track pose
+            self.stage = 1
 
         return estDSPose
 

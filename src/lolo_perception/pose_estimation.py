@@ -289,7 +289,7 @@ class DSPoseEstimator:
                                                                     rvec=guessRot,
                                                                     flags=cv.SOLVEPNP_ITERATIVE)
         else:
-            guessTrans = np.array([[0.], [0.], [1]])
+            guessTrans = np.array([[0.], [0.], [5]])
             #print("Guess trans", guessTrans)
             guessRot = np.array([[0.], [0.], [0.]])
             # On axis-angle: https://en.wikipedia.org/wiki/Axis%E2%80%93angle_representation#Relationship_to_other_representations
