@@ -67,6 +67,13 @@ class Perception:
         # and is used to update the estimated pose (estDSPose) for better prediction of the ROI
         self.estCameraPoseVector = np.array([0.]*6) # [x, y, z, ax, ay, az]
 
+        # stages of the perception module:
+        # 1 - initialize light source trackers
+        # 2 - track light sources
+        # 3 - initialize pose
+        # 4 - track pose
+        self.stage = 1
+
     def updateDSPoseFromNewCameraPose(self, estDSPose, estCameraPoseVector):
         if self.estCameraPoseVector is not None:
             print("Updating estDSPose")
@@ -95,13 +102,6 @@ class Perception:
             # we only 
             #covR[:3, :3] *= np.linalg.norm(c2ToC1Transl)*translK
             #estDSPose._covariance += covR
-
-            # stages of the perception module:
-            # 1 - initialize light source trackers
-            # 2 - track light sources
-            # 3 - initialize pose
-            # 4 - track pose
-            self.stage = 1
 
         return estDSPose
 

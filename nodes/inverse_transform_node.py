@@ -8,6 +8,18 @@ from scipy.spatial.transform import Rotation as R
 
 from lolo_simulation.coordinate_system import CoordinateSystemArtist
 
+def calcPoseDiff(pose1, pose2):
+    """
+    pose - [x,y,z,ax,ay,az] where ax,ay,az is with euler order YXZ
+    """
+    translDiff = pose1[:3] - pose2[:3]
+
+    ax1, ay1, az1 = pose1[3:]
+    r1 = R.from_euler("YXZ", (ay1, ax1, az1))
+
+    ax2, ay2, az2 = pose2[3:]
+    r1 = R.from_euler("YXZ", (ay2, ax2, az2))
+
 class InverseTransformNode:
     def __init__(self, trans1Name, trans2Name, referenceFrame=None, bufferLength=500, movingErrAverage=1):
         self.trans1Name = trans1Name
@@ -307,6 +319,7 @@ class InverseTransformNode:
                     self.poses1.append(pose1)
                     self.poses2.append(pose2)
                     self.diffs.append(pose1-pose2)
+                    #self.diffs.append(calcPoseDiff(pose1, pose2)) # TODO
 
                     self.poses1 = self.poses1[-self.bufferLength-self.movingErrAverage+1:]
                     self.poses2 = self.poses2[-self.bufferLength-self.movingErrAverage+1:]

@@ -1665,9 +1665,7 @@ class AdaptiveThreshold2:
         return candidates
 
     def process(self, gray, maxAdditionalCandidates=0, estDSPose=None, roiMargin=None, drawImg=None):
-        """
-        maxAdditionalCandidates not used
-        """
+
         roiCnt = None
         if estDSPose:
             featurePointsGuess = estDSPose.reProject()
