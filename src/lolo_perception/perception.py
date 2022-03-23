@@ -1,3 +1,4 @@
+from concurrent.futures import process
 import cv2 as cv
 import time
 import numpy as np
@@ -13,13 +14,17 @@ class Perception:
         self.camera = camera
         self.featureModel = featureModel
         
+        minPatchRadius = int(self.camera.cameraMatrix[0, 0]*self.camera.resolution[1]/69120.0)
+        radius = int(minPatchRadius * 1.5)
+        maxPatchRadius = int(minPatchRadius * 7.2)
+        maxMovement = int(minPatchRadius * 1.5)
         # Initialize light source tracker
-        self.lightSourceTracker = LightSourceTrackInitializer(radius=10, 
-                                                              maxPatchRadius=50, 
-                                                              minPatchRadius=7,
+        self.lightSourceTracker = LightSourceTrackInitializer(radius=radius, 
+                                                              maxPatchRadius=maxPatchRadius, 
+                                                              minPatchRadius=minPatchRadius,
                                                               p=0.97,
                                                               maxIntensityChange=0.7,
-                                                              maxMovement=20)
+                                                              maxMovement=maxMovement)
 
         # Use HATS when light sources are "large"
         # This feature extractor sorts candidates based on area
@@ -141,13 +146,16 @@ class Perception:
                 # change to hats
                 self.featureExtractor = self.hatsFeatureExtractor
 
-        
+
         # extract light source candidates from image
         _, candidates, roiCntUpdated = self.featureExtractor(gray, 
-                                                             maxAdditionalCandidates=self.maxAdditionalCandidates, 
-                                                             estDSPose=estDSPose,
-                                                             roiMargin=self.roiMargin, 
-                                                             drawImg=processedImg)
+                                                            maxAdditionalCandidates=self.maxAdditionalCandidates, 
+                                                            estDSPose=estDSPose,
+                                                            roiMargin=self.roiMargin, 
+                                                            drawImg=processedImg)
+
+        # TEMPORARY
+        #self.lightSourceTracker.update(gray, [ls.center for ls in candidates], drawImg=processedImg)
 
         # return if pose has been aquired or not
         poseAquired = False

@@ -1,24 +1,24 @@
 <launch>
-  <arg name="video_device" default="-1" /> <!--Use video device online-->
-  <arg name="solo" default="-1" /> <!--Run the perception node stand alone, publishing a static transform between lolo/base_link and lolo_camera-->
-  <arg name="sim" default="-1" /> <!-- When running simulation, some topic needs to be remapped-->
+  <arg name="video_device" default="false" /> <!--Use video device online-->
+  <arg name="solo" default="false" /> <!--Run the perception node stand alone, publishing a static transform between lolo/base_link and lolo_camera-->
+  <arg name="sim" default="false" /> <!-- When running simulation, some topic needs to be remapped-->
   <arg name="feature_model_yaml" default="big_prototype_5.yaml" />
   <arg name="hz" default="30"/>
-  <arg name="rviz" default="1"/>
+  <arg name="rviz" default="false"/>
 
-  <include file="$(find lolo_perception)/launch/usb_cam.launch" if="$(eval arg('video_device') != -1)">
+  <include file="$(find lolo_perception)/launch/usb_cam.launch" if="$(eval arg('video_device') == true)">
     <arg name="video_device" value="$(arg video_device)"/>
   </include> 
 
   <node name="perception_node" pkg="lolo_perception" type="perception_node.py" output="screen" >
     <param name="feature_model_yaml" value="$(arg feature_model_yaml)"/>
     <param name="hz" value="$(arg hz)"/>
-    <remap from="/lolo_camera/image_rect_color" to="/lolo/sim/camera_aft/image_color" if="$(eval arg('sim') == 1)"/>
-    <remap from="/lolo_camera/camera_info" to="/lolo/sim/camera_aft/camera_info" if="$(eval arg('sim') == 1)"/>
+    <remap from="/lolo_camera/image_rect_color" to="/lolo/sim/camera_aft/image_color" if="$(eval arg('sim') == true)"/>
+    <remap from="/lolo_camera/camera_info" to="/lolo/sim/camera_aft/camera_info" if="$(eval arg('sim') == true)"/>
   </node>
 
   <!--node pkg="tf" type="static_transform_publisher" name="docking_station_link" args="0 0.5 1 -1.571 0 -1.571 map docking_station 100" /-->
-  <node pkg="tf" type="static_transform_publisher" name="lolo_camera_link" args="-2.5 0.0 0.33 1.571 0 -1.571 lolo/base_link lolo_camera_link 100" if="$(eval arg('solo') == 1)"/>
+  <node pkg="tf" type="static_transform_publisher" name="lolo_camera_link" args="-2.5 0.0 0.33 1.571 0 -1.571 lolo/base_link lolo_camera_link 100" if="$(eval arg('solo') == true)"/>
 
   <node type="rviz" name="rviz" pkg="rviz" args="-d $(find lolo_perception)/rviz/lolo.rviz" if="$(arg rviz)"/>
 

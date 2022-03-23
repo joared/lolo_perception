@@ -1237,7 +1237,7 @@ class LightSourceTracker:
         if patch.shape[0] != patchKernel.shape[0] or patch.shape[1] != patchKernel.shape[1]:
             # TODO: what happens with "i" here?
             print("not right")
-            False
+            return False
 
         #grayMasked = np.zeros(gray.shape, dtype=np.uint8)
         #grayMasked[center[1]-patchRadius:center[1]+patchRadius+1, center[0]-patchRadius:center[0]+patchRadius+1] = patch
@@ -1292,6 +1292,7 @@ class LightSourceTrackInitializer:
         self.maxIntensityChange = maxIntensityChange
 
         self.trackers = []
+        self.iterations = 0
 
     def getMaskedImg(self, gray):
         grayMasked = gray.copy()
@@ -1300,7 +1301,12 @@ class LightSourceTrackInitializer:
         
         return grayMasked
 
+    def reset(self):
+        self.trackers = []
+        self.iterations = 0
+
     def update(self, gray, newTrackerCenters=None, drawImg=None):
+        self.iterations += 1
 
         if newTrackerCenters is not None:
             for center in newTrackerCenters:
@@ -1311,7 +1317,7 @@ class LightSourceTrackInitializer:
                                                         minPatchRadius=self.minPatchRadius,
                                                         p=self.p))
 
-        for tr in self.trackers:
+        for tr in list(self.trackers):
             center = tr.center
             intensity = tr.intensity
             success = tr.update(gray, drawImg=drawImg)
@@ -1324,20 +1330,21 @@ class LightSourceTrackInitializer:
                     print("Movement to large")
                     self.trackers.remove(tr)
 
-                if newIntensity < intensity*self.maxIntensityChange:
-                    print(intensity)
-                    print(newIntensity)
+                elif newIntensity < intensity*self.maxIntensityChange:
                     print("Intensity change to large")
                     self.trackers.remove(tr)
 
             else:
                 # TODO: remove tracker here?
-                pass
+                self.trackers.remove(tr)
 
-        for tr1, tr2 in itertools.combinations(self.trackers, 2):
+        for tr1, tr2 in itertools.combinations(list(self.trackers), 2):
             if tr1.center == tr2.center:
                 print("Trackers same place, removing one")
-                self.trackers.remove(tr2)
+                try:
+                    self.trackers.remove(tr2)
+                except:
+                    pass
 
 class MeanShiftTracker:
     def __init__(self, center, radius, maxRadius, minRadius):
