@@ -135,8 +135,8 @@ class PerceptionNode:
         if publishImages:
             self.imgProcDrawPublisher.publish(self.bridge.cv2_to_imgmsg(processedImg))
             self.imgProcPublisher.publish(self.bridge.cv2_to_imgmsg(self.perception.featureExtractor.img))
-            if dsPose:
-                self.imgPosePublisher.publish(self.bridge.cv2_to_imgmsg(poseImg))
+            #if dsPose:
+            self.imgPosePublisher.publish(self.bridge.cv2_to_imgmsg(poseImg))
 
         if dsPose:
             # if the light source candidates have been associated, we pusblish the associated candidates

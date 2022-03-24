@@ -20,9 +20,19 @@ def calcMahalanobisDist(estDSPose, dsPose):
     S = estDSPose.covariance
     translErr = estDSPose.translationVector - dsPose.translationVector
     translErr *= 0
-    rotationErr = estDSPose.rotationVector - dsPose.rotationVector
+    
+    r1 = R.from_rotvec(estDSPose.rotationVector)
+    r2 = R.from_rotvec(dsPose.rotationVector)
+ 
+    #e = r1*r2.inv() # error in world (not this one, because it is fixed frame rotation)
+    #e = r1.inv()*r2 # 2 wrt to 1 (should not be this one)
+    rotationErr = r2.inv()*r1 # 1 wrt to 2
+    rotationErr = rotationErr.as_euler("xyz") # fixed axis "xyz"
+
     err = np.array(list(translErr) + list(rotationErr))
+    #print(np.matmul(err, np.linalg.inv(S)))
     mahaDist = np.matmul(np.matmul(err, np.linalg.inv(S)), err.transpose())
+    mahaDist = np.sqrt(mahaDist)
     
     return mahaDist
 

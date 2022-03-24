@@ -10,7 +10,8 @@ def plotPoseImageInfo(poseImg,
                       poseAquired,
                       validOrientationRange,
                       roiCnt=None,
-                      roiCntUpdated=None):
+                      roiCntUpdated=None,
+                      progress=0):
 
     validOrientation = False
     if dsPose:
@@ -25,11 +26,12 @@ def plotPoseImageInfo(poseImg,
             roiColor = (0, 0, 255)
         if roiCnt is not None:
             cv.drawContours(poseImg, [roiCnt], -1, (100,100,100), 3)
+        if roiCntUpdated is not None:
             cv.drawContours(poseImg, [roiCntUpdated], -1, roiColor, 3)
             
             cv.putText(poseImg, 
                        "#{}".format(dsPose.detectionCount), 
-                       (roiCnt[0][0]-10, roiCnt[0][1]-10), 
+                       (roiCntUpdated[0][0]-10, roiCntUpdated[0][1]-10), 
                        cv.FONT_HERSHEY_SIMPLEX, 
                        fontScale=1, 
                        thickness=2, 
@@ -60,6 +62,14 @@ def plotPoseImageInfo(poseImg,
         plotPoints(poseImg, [ls.center for ls in dsPose.associatedLightSources], (255, 0, 0), radius=5)
 
     plotCrosshair(poseImg, camera)
+    
+    xStart = camera.resolution[1]-30
+    yStart = camera.resolution[0]-10
+    xEnd = xStart
+    yEnd = yStart - 200
+
+    cv.line(poseImg, (xStart, yStart), (xEnd, yEnd), (255,255,255), 15)
+    cv.line(poseImg, (xStart, yStart), (xEnd, int(progress*(yEnd - yStart)) + yStart), (0,255,0), 10)
 
 def plotAxis(img, translationVector, rotationVector, camera, points, scale, color=None, thickness=2, opacity=1):
     points = points[:, :3].copy()

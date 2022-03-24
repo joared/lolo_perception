@@ -1221,6 +1221,24 @@ class LightSourceTracker:
         #    if self.radius *< rad
         return thePeakInt, thePeakCnt
 
+    def __peakSelect(self, gray, peakImgPatch, center, patchRadius, drawImg=None):
+        # TODO
+        """
+        (peakDilationImg, 
+        peaksDilationMasked, 
+        peakCenters, 
+        peakContours) = findNPeaks(gray, 
+                                kernel=self.kernel, 
+                                p=self.p, 
+                                n=1,
+                                margin=0,
+                                offset=(center[0]-patchRadius, center[1]-patchRadius),
+                                drawImg=drawImg)
+        """
+        pass
+
+    def getLightSource(self):
+        return LightSource(self.cnt, self.intensity)
 
     def update(self, gray, drawImg=None):
         if drawImg is not None:
@@ -1300,6 +1318,17 @@ class LightSourceTrackInitializer:
             cv.circle(grayMasked, tr.center, tr.patchRadius, (0,0,0), -1)
         
         return grayMasked
+
+    def _sortLightSources(self, candidates, n):
+        candidates.sort(key=lambda p: (p.intensity, p.area), reverse=True)
+        candidates = candidates[:n]
+        
+        return candidates
+
+    def getCandidates(self, n=None):
+        if n is None:
+            n = len(self.trackers)
+        return self._sortLightSources([tr.getLightSource() for tr in self.trackers], n)
 
     def reset(self):
         self.trackers = []

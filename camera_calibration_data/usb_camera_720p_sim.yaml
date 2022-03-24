@@ -1,4 +1,4 @@
-image_width: 1280
+image_width: 1024
 image_height: 720
 camera_name: narrow_stereo
 camera_matrix:
