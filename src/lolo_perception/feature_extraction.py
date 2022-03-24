@@ -1705,6 +1705,7 @@ class AdaptiveThreshold2:
         roiCnt = None
         if estDSPose:
             featurePointsGuess = estDSPose.reProject()
+            roiMargin += max([ls.radius for ls in estDSPose.associatedLightSources])
             (x, y, w, h), roiCnt = regionOfInterest(featurePointsGuess, wMargin=roiMargin, hMargin=roiMargin)
             roiMask = np.zeros(gray.shape, dtype=np.uint8)
             cv.drawContours(roiMask, [roiCnt], 0, (255,255,255), -1)
@@ -1790,6 +1791,7 @@ class AdaptiveThresholdPeak:
         peakMargin = 3
         if estDSPose:
             featurePointsGuess = estDSPose.reProject()
+            roiMargin += max([ls.radius for ls in estDSPose.associatedLightSources])
             (x, y, w, h), roiCnt = regionOfInterest(featurePointsGuess, wMargin=roiMargin, hMargin=roiMargin)
             x = max(0, x)
             x = min(gray.shape[1]-1, x)

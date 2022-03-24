@@ -14,10 +14,11 @@ class Perception:
         self.camera = camera
         self.featureModel = featureModel
         
-        minPatchRadius = int(self.camera.cameraMatrix[0, 0]*self.camera.resolution[1]/69120.0)
-        radius = int(minPatchRadius * 1.2)
-        maxPatchRadius = int(minPatchRadius * 7.2)
-        maxMovement = int(minPatchRadius * 1.5)
+        # This scaling might not be accurate, better to adjust manually
+        #minPatchRadius = int(self.camera.cameraMatrix[0, 0]*self.camera.resolution[1]/69120.0)
+        #radius = int(minPatchRadius * 1.2)
+        #maxPatchRadius = int(minPatchRadius * 7.2)
+        #maxMovement = int(minPatchRadius * 1.5)
 
         minPatchRadius = 7
         radius = 7
@@ -25,13 +26,14 @@ class Perception:
         maxMovement = 20
 
 
-        # Initialize light source tracker
+        # Initialize light source trackers
         self.lightSourceTracker = LightSourceTrackInitializer(radius=radius, 
                                                               maxPatchRadius=maxPatchRadius, 
                                                               minPatchRadius=minPatchRadius,
                                                               p=0.97,
                                                               maxIntensityChange=0.7,
                                                               maxMovement=maxMovement)
+        # Number of trackers in the initialization phase (stage 1 and 2)
         self.nLightSourceTrackers = 20
 
         # Use HATS when light sources are "large"
@@ -114,35 +116,13 @@ class Perception:
             estDSPose.rotationVector = dsToC2Rot.as_rotvec()
 
         # increase covariance
-        rotK = 0.01
+        rotK = 5e-5
         covNew = estDSPose.covariance + np.eye(6)*rotK
         estDSPose._covariance = covNew
 
         return estDSPose
 
-    def estimatePose(self, 
-                     imgColor, 
-                     estDSPose=None,
-                     estCameraPoseVector=None):
-
-        #estCameraPoseVector = None ###
-
-        # Keeping track of FPS
-        start = time.time()
-
-        # information about contours extracted from the feature extractor is plotted in this image
-        processedImg = imgColor.copy()
-        
-        # pose information and ROI is plotted in this image
-        poseImg = imgColor.copy()
-
-        # gray image to be processed
-        gray = cv.cvtColor(imgColor, cv.COLOR_BGR2GRAY)
-
-        # ROI contour
-        roiCnt = None
-        roiCntUpdated = None
-
+    def _updateStage(self, estDSPose):
         if self.stage in (1, 2):
             # if estDSPose is given from something else than the perception module
             #if estDSPose:
@@ -170,16 +150,46 @@ class Perception:
                     if estDSPose.detectionCount >= self.stage4Iterations:
                         self.stage = 5
 
-                featurePointsGuess = estDSPose.reProject()
-                _, roiCnt = regionOfInterest(featurePointsGuess, wMargin=self.roiMargin, hMargin=self.roiMargin)
-
-                # TODO: move this to perception_node?
-                estDSPose = self.updateDSPoseFromNewCameraPose(estDSPose, estCameraPoseVector)
-                self.estCameraPoseVector = estCameraPoseVector
             else:
                  self.stage = self.startStage
         else:
             raise Exception("Invalid stage '{}'".format(self.stage))
+
+    def estimatePose(self, 
+                     imgColor, 
+                     estDSPose=None,
+                     estCameraPoseVector=None):
+
+        #estCameraPoseVector = None ###
+
+        # Keeping track of FPS
+        start = time.time()
+
+        # information about contours extracted from the feature extractor is plotted in this image
+        processedImg = imgColor.copy()
+        
+        # pose information and ROI is plotted in this image
+        poseImg = imgColor.copy()
+
+        # gray image to be processed
+        gray = cv.cvtColor(imgColor, cv.COLOR_BGR2GRAY)
+
+        # ROI contour
+        roiCnt = None
+        roiCntUpdated = None
+
+        self._updateStage(estDSPose)
+
+
+        # TODO: move this to perception_node?
+        if estDSPose:
+            featurePointsGuess = estDSPose.reProject()
+            roiMargin = self.roiMargin
+            roiMargin += max([ls.radius for ls in estDSPose.associatedLightSources])
+            _, roiCnt = regionOfInterest(featurePointsGuess, wMargin=roiMargin, hMargin=roiMargin)
+
+            estDSPose = self.updateDSPoseFromNewCameraPose(estDSPose, estCameraPoseVector)
+        self.estCameraPoseVector = estCameraPoseVector
 
         # return if pose has been aquired or not
         poseAquired = False
@@ -196,6 +206,7 @@ class Perception:
                                                                      drawImg=processedImg)
             self.lightSourceTracker.update(gray, [ls.center for ls in candidates], drawImg=processedImg)
             candidates = self.lightSourceTracker.getCandidates()
+
         elif self.stage == 2:
             self.lightSourceTracker.update(gray, drawImg=processedImg)
             candidates = self.lightSourceTracker.getCandidates()
@@ -229,19 +240,26 @@ class Perception:
                 # which determines the maximum allowed reprojection RMSE
                 if estDSPose and self.featureExtractor == self.hatsFeatureExtractor:
                     # if we use HATS, presumably we are close and we want to find the best pose
-                    dsPose = self.poseEstimator.findBestPose(associatedPermutations, estDSPose=estDSPose, firstValid=False)
+                    dsPose = self.poseEstimator.findBestPose(associatedPermutations, 
+                                                             estDSPose=estDSPose, 
+                                                             firstValid=False, 
+                                                             mahaDistThresh=self.mahalanobisDistThresh)
                 else:
                     # if we use local peak, presumably we are far away, 
                     # and the first valid pose is good enough in most cases 
-                    dsPose = self.poseEstimator.findBestPose(associatedPermutations, estDSPose=estDSPose, firstValid=True)
+                    dsPose = self.poseEstimator.findBestPose(associatedPermutations, 
+                                                             estDSPose=estDSPose, 
+                                                             firstValid=True,
+                                                             mahaDistThresh=self.mahalanobisDistThresh)
 
                 if dsPose:
+                    # TODO: remove this, it's done in pose_estimation
                     if dsPose.rmse < dsPose.rmseMax:
                         
                         # TODO: Do this is pose_estimation.py?
                         if estDSPose:
                             # mahanalobis distance check
-                            #mahaDist = dsPose.calcMahalanobisDist(estDSPose)
+                            # mahaDist = dsPose.calcMahalanobisDist(estDSPose)
                             #if mahaDist <= self.mahalanobisDistThresh:
                                 # disregard poses with large mahalaobis distance
                                 #pass

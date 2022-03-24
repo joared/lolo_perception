@@ -16,8 +16,10 @@ from lolo_perception.reprojection_utils import calcPoseReprojectionRMSEThreshold
 from numpy.linalg import lapack_lite
 #lapack_routine = lapack_lite.dgesv
 
-def calcMahalanobisDist(estDSPose, dsPose):
-    S = estDSPose.covariance
+def calcMahalanobisDist(estDSPose, dsPose, SInv=None):
+    if SInv is None:
+        SInv = np.linalg.inv(estDSPose.covariance)
+
     translErr = estDSPose.translationVector - dsPose.translationVector
     translErr *= 0
     
@@ -31,7 +33,7 @@ def calcMahalanobisDist(estDSPose, dsPose):
 
     err = np.array(list(translErr) + list(rotationErr))
     #print(np.matmul(err, np.linalg.inv(S)))
-    mahaDist = np.matmul(np.matmul(err, np.linalg.inv(S)), err.transpose())
+    mahaDist = np.matmul(np.matmul(err, SInv), err.transpose())
     mahaDist = np.sqrt(mahaDist)
     
     return mahaDist
@@ -179,8 +181,8 @@ class DSPose:
         else:
             return np.zeros((6, 6))
 
-    def calcMahalanobisDist(self, estDSPose):
-        mahaDist = calcMahalanobisDist(estDSPose, self)
+    def calcMahalanobisDist(self, estDSPose, SInv=None):
+        mahaDist = calcMahalanobisDist(estDSPose, self, SInv)
         self.mahaDist = mahaDist
         return self.mahaDist
 
@@ -338,12 +340,18 @@ class DSPoseEstimator:
                       self.camera,
                       self.featureModel)
 
-    def findBestPose(self, associatedLightSourcePermutations, estDSPose=None, firstValid=False):
+    def findBestPose(self, associatedLightSourcePermutations, estDSPose=None, firstValid=False, mahaDistThresh=None):
+        """
+        Assume that if firstValid == False, we don't care about 
+        mahalanobis distance and just want to find the best pose based on RMSE ratio RMSE/RMSE_MAX
+        """
         estTranslationVec = None
         estRotationVec = None
+        SInv = None
         if estDSPose:
-                estTranslationVec = estDSPose.translationVector
-                estRotationVec = estDSPose.rotationVector
+            estTranslationVec = estDSPose.translationVector
+            estRotationVec = estDSPose.rotationVector
+            SInv = np.linalg.inv(estDSPose.covariance)
 
         poses = []
         rmseRatios = []
@@ -352,14 +360,33 @@ class DSPoseEstimator:
                                     estTranslationVec=estTranslationVec, 
                                     estRotationVec=estRotationVec)
             
-            if firstValid and dsPose.rmse < dsPose.rmseMax:
-                return dsPose
+            if estDSPose:
+                # If estDSPose is given, mahaDistThresh has to be given
+                if mahaDistThresh is None:
+                    raise Exception("Mahalanobis distance has to be given")
 
+                mahaDist = dsPose.calcMahalanobisDist(estDSPose, SInv)
+                validMahaDist = mahaDist < mahaDistThresh
+            else:
+                validMahaDist = True
 
-            rmseRatios.append(float(dsPose.rmse)/dsPose.rmseMax)
-            poses.append(dsPose)
+            validRMSE = dsPose.rmse < dsPose.rmseMax
+            valid = validRMSE and validMahaDist
+
+            if firstValid:
+                # TODO: Temporary, remove
+                if validRMSE and not validMahaDist:
+                    print("Maha dist outlier")
+
+                if valid:
+                    return dsPose
+            else:
+                if validRMSE:
+                    rmseRatios.append(float(dsPose.rmse)/dsPose.rmseMax)
+                    poses.append(dsPose)
 
         if rmseRatios:
+            # Find the best pose in terms of RMSE ratio
             bestIdx = np.argmin(rmseRatios)
             bestPose = poses[bestIdx]
             return bestPose
