@@ -5,7 +5,7 @@ import numpy as np
 import itertools
 from scipy.spatial.transform import Rotation as R
 
-from lolo_perception.feature_extraction import featureAssociation, regionOfInterest, LightSourceTrackInitializer, AdaptiveThreshold2, AdaptiveThresholdPeak
+from lolo_perception.feature_extraction import featureAssociation, featureAssociationSquare, regionOfInterest, LightSourceTrackInitializer, AdaptiveThreshold2, AdaptiveThresholdPeak
 from lolo_perception.pose_estimation import DSPoseEstimator, calcMahalanobisDist
 from lolo_perception.perception_utils import plotPoseImageInfo
 
@@ -233,7 +233,10 @@ class Perception:
             if len(candidates) >= len(self.featureModel.features):
 
                 lightCandidatePermutations = list(itertools.combinations(candidates, len(self.featureModel.features)))
-                associatedPermutations = [featureAssociation(self.featureModel.features, candidates)[0] for candidates in lightCandidatePermutations]
+                #associatedPermutations = [featureAssociation(self.featureModel.features, candidates)[0] for candidates in lightCandidatePermutations]
+                associatedPermutations = [featureAssociationSquare(self.featureModel.features, 
+                                                                   candidates, 
+                                                                   self.camera.resolution)[0] for candidates in lightCandidatePermutations]
                     
                 # findBestPose finds poses based on reprojection RMSE
                 # the featureModel specifies the placementUncertainty and detectionTolerance

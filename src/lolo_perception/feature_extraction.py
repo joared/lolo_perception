@@ -966,6 +966,9 @@ def regionOfInterest(featurePointsGuess, wMargin, hMargin):
 
     return (x, y, w, h), roiCnt
 
+def pixelDist(center1, center2):
+    return np.linalg.norm([center1[0]-center2[0], center1[1]-center2[1]])
+
 def __featureAssociation(featurePoints, detectedPoints, featurePointsGuess=None, drawImg=None):
     """
     Assumes that the orientation of the feature model is approximately the identity matrix relative to the camera frame
@@ -1040,19 +1043,81 @@ def featureAssociationWithGuess(detectedLightSources, featurePointGuess, associa
 
     return associatedLightSources
 
-def featureAssociationSquare(featurePoints, detectedLightSources, drawImg=None):
-    tlIdxF = None
-    trIdxF = None
-    blIdxF = None
-    brIdx = None
+def featureAssociationSquare(featurePoints, detectedLightSources, resolution, drawImg=None):
+    """
+    resolution - (h, w)
+    """
+    if len(detectedLightSources) != len(featurePoints):
+        raise Exception("Detected points and feature points does not have the same length")
 
-    detectedLightSources = list(detectedLightSources)
-    detectedPoints = [ls.center for ls in detectedLightSources]
-    if len(detectedPoints) < len(featurePoints):
-        print("Not enough features detected")
-        return [], []
-
+    assert len(featurePoints) > 3 and len(featurePoints) <= 5, "Can not perform square association with '{}' feature points".format(len(featurePoints))
     
+    refIdxs = [None]*4 # [topLeftIdx, topRightIdx, bottomLeftIdx, bottomRightIdx]
+    featurePointDists = [np.linalg.norm(fp[:2]) for fp in featurePoints]
+
+    for i, (fp, d) in enumerate(zip(featurePoints, featurePointDists)):
+
+        if fp[0] < 0 and fp[1] < 0:
+            # top left
+            refIdx = 0
+        elif fp[0] > 0 and fp[1] < 0:
+            # top right
+            refIdx = 1
+        elif fp[0] < 0 and fp[1] > 0:
+            # bottom left
+            refIdx = 2
+        elif fp[0] > 0 and fp[1] > 0:
+            # bottom right
+            refIdx = 3
+        else:
+            continue
+
+        if refIdxs[refIdx] is None:
+            refIdxs[refIdx] = i
+        else:
+            if d > featurePointDists[refIdxs[refIdx]]:
+                refIdxs[refIdx] = i
+
+    for v in refIdxs:
+        if v is None:
+            print(refIdxs)
+            raise Exception("Association failed")
+
+    h, w = resolution
+    tLeft = (0, 0)
+    tRight = (w-1, 0)
+    bLeft = (0, h-1)
+    bRight = (w-1, h-1)
+
+    associatedLightSources = [None]*len(featurePoints)
+    detectedLightSources = list(detectedLightSources)
+
+    for refIdx, refCorner in zip(refIdxs, [tLeft, tRight, bLeft, bRight]):
+        for i, ls in enumerate(detectedLightSources):
+            if associatedLightSources[refIdx] is None:
+                associatedLightSources[refIdx] = ls
+            else:
+                lsOther = associatedLightSources[refIdx]
+
+                dist = pixelDist(ls.center, refCorner)
+                distOther = pixelDist(lsOther.center, refCorner)
+                if dist < distOther:
+                    associatedLightSources[refIdx] = ls
+
+    try:
+        notCornerIdx = associatedLightSources.index(None)
+    except ValueError:
+        pass
+    else:
+        for ls in detectedLightSources:
+            if ls not in associatedLightSources:
+                associatedLightSources[notCornerIdx] = ls
+                break
+        else:
+            raise Exception("Somthing went wrong")
+    
+    return associatedLightSources, []
+
 
 def featureAssociation(featurePoints, detectedLightSources, featurePointsGuess=None, drawImg=None):
     """
@@ -1652,10 +1717,12 @@ class GradientFeatureExtractor:
         grad_x = cv.Sobel(res, cv.CV_64F, 1, 0, ksize=ksize)
         grad_y = cv.Sobel(res, cv.CV_64F, 0, 1, ksize=ksize)
 
-        abs_grad_x = cv.convertScaleAbs(grad_x)
-        abs_grad_y = cv.convertScaleAbs(grad_y)
+        abs_grad_x = cv.convertScaleAbs(grad_x, alpha=255/grad_x.max())
+        abs_grad_y = cv.convertScaleAbs(grad_y, alpha=255/grad_y.max())
         
         res = cv.addWeighted(abs_grad_x, 0.5, abs_grad_y, 0.5, 0)
+
+
 
         #res = cv.GaussianBlur(res, (3,3), 0)
         #res = cv.blur(res, (5,5))
