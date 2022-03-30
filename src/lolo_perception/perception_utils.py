@@ -36,6 +36,14 @@ def plotPoseImageInfo(poseImg,
                        fontScale=1, 
                        thickness=2, 
                        color=(0,255,0))
+
+            cv.putText(poseImg, 
+                       "#{}".format(dsPose.attempts), 
+                       (roiCntUpdated[1][0]-20, roiCntUpdated[1][1]-10), 
+                       cv.FONT_HERSHEY_SIMPLEX, 
+                       fontScale=1, 
+                       thickness=2, 
+                       color=(0,0,255))
         if dsPose:
             plotAxis(poseImg, 
                     dsPose.translationVector, 

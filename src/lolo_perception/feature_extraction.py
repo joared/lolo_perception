@@ -4,6 +4,7 @@ import cv2 as cv
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation as R
+from scipy import signal
 from perception_utils import plotPoints, projectPoints
 import rospy
 from sensor_msgs.msg import Image
@@ -664,6 +665,10 @@ def findPeakContourAt(gray, center, offset=None):
     """
     return foundCnt, foundCntOffset
 
+def findMaxPeakAt(gray, center, p):
+    
+    _, grayThreholded = cv.threshold(gray, maxIntensity-1, 256, cv.THRESH_TOZERO)
+
 def findMaxPeak(gray, p):
     """
     Finds the maximum peak and the contour surrounding p % of its max value 
@@ -1118,6 +1123,77 @@ def featureAssociationSquare(featurePoints, detectedLightSources, resolution, dr
     
     return associatedLightSources, []
 
+def featureAssociationSquareImproved(featurePoints, detectedLightSources, drawImg=None):
+    """
+    resolution - (h, w)
+    """
+    if len(detectedLightSources) != len(featurePoints):
+        raise Exception("Detected points and feature points does not have the same length")
+
+    assert len(featurePoints) > 3 and len(featurePoints) <= 5, "Can not perform square association with '{}' feature points".format(len(featurePoints))
+    
+    refIdxs = [None]*4 # [topLeftIdx, topRightIdx, bottomLeftIdx, bottomRightIdx]
+    featurePointDists = [np.linalg.norm(fp[:2]) for fp in featurePoints]
+
+    for i, (fp, d) in enumerate(zip(featurePoints, featurePointDists)):
+
+        if fp[0] < 0 and fp[1] < 0:
+            # top left
+            refIdx = 0
+        elif fp[0] > 0 and fp[1] < 0:
+            # top right
+            refIdx = 1
+        elif fp[0] < 0 and fp[1] > 0:
+            # bottom left
+            refIdx = 2
+        elif fp[0] > 0 and fp[1] > 0:
+            # bottom right
+            refIdx = 3
+        else:
+            continue
+
+        if refIdxs[refIdx] is None:
+            refIdxs[refIdx] = i
+        else:
+            if d > featurePointDists[refIdxs[refIdx]]:
+                refIdxs[refIdx] = i
+
+    for v in refIdxs:
+        if v is None:
+            print(refIdxs)
+            raise Exception("Association failed")
+
+
+
+    # identify top two and bottom two
+    sortedByAscendingY = sorted(detectedLightSources, key=lambda ls: ls.center[1])
+    topTwo = sortedByAscendingY[:2]
+    bottomTwo = sortedByAscendingY[-2:]
+
+    # sort by x to identify [left, right]
+    topLeft, topRight = sorted(topTwo, key=lambda ls: ls.center[0])
+    bottomLeft, bottomRight = sorted(bottomTwo, key=lambda ls: ls.center[0])
+
+    associatedLightSources = [None]*len(featurePoints)
+    #detectedLightSources = list(detectedLightSources)
+
+    for refIdx, ls in zip(refIdxs, [topLeft, topRight, bottomLeft, bottomRight]):
+        associatedLightSources[refIdx] = ls
+
+    try:
+        notCornerIdx = associatedLightSources.index(None)
+    except ValueError:
+        pass
+    else:
+        for ls in detectedLightSources:
+            if ls not in associatedLightSources:
+                associatedLightSources[notCornerIdx] = ls
+                break
+        else:
+            raise Exception("Somthing went wrong")
+    
+    return associatedLightSources, []
+
 
 def featureAssociation(featurePoints, detectedLightSources, featurePointsGuess=None, drawImg=None):
     """
@@ -1190,6 +1266,9 @@ class LightSource:
         self.intensity = intensity
 
         self.rmseUncertainty = self.radius
+
+    def circleExtent(self):
+        return contourRatio(self.cnt)
 
 class LightSourceTracker:
     def __init__(self, center, intensity, radius, maxPatchRadius, minPatchRadius, p=.97):
@@ -1805,9 +1884,114 @@ class AdaptiveThreshold2:
             candidates = self._calcCandidates(contours)
 
         print("HATS iterations: {}".format(i))
+        print("Threshold: {}".format(self.threshold))
 
         if self.marginPercentage > 0:
             self.threshold = (1-self.marginPercentage)*self.threshold
+            ret, imgTemp = cv.threshold(img, self.threshold, upper, self.thresholdType)
+            _, contours, hier = cv.findContours(imgTemp, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+            candidates = self._calcCandidates(contours)
+
+        self.img = imgTemp
+
+        if drawImg is not None:
+            for cnt in candidates:
+                cx, cy = contourCentroid(cnt)
+                r = contourRatio(cnt)
+                drawInfo(drawImg, (cx+15,cy-15), str(r))
+                cv.drawContours(drawImg, [cnt], 0, (255,0,0), -1)
+
+        candidates = [LightSource(cnt, self.threshold) for cnt in candidates]
+        candidates = self._sortLightSources(candidates, maxAdditionalCandidates)
+        return self.img, candidates, roiCnt
+
+class ModifiedHATS:
+    def __init__(self, nFeatures, peakMargin=0, minArea=1, minRatio=0, thresholdType=cv.THRESH_BINARY):
+        """
+        try cv.THRESH_OTSU?
+        """
+        self.nFeatures = nFeatures
+        self.threshold = 256
+        self.peakMargin = peakMargin # 0-1
+        self.minArea = minArea
+        self.minRatio = minRatio
+        self.thresholdType = thresholdType 
+        self.img = np.zeros((10, 10)) # store the last processed image
+
+    def __call__(self, *args, **kwargs):
+        return self.process(*args, **kwargs)
+
+    def _calcCandidates(self, contours):
+        candidates = []
+        for cnt in contours:
+            #if cv.contourArea(cnt)+1 > self.minArea and contourRatio(cnt) > self.minRatio:
+            if cv.contourArea(cnt) > self.minArea:
+                if contourRatio(cnt) > self.minRatio:
+                    candidates.append(cnt)
+
+        return candidates
+
+    def _sortLightSources(self, candidates, maxAdditionalCandidates):
+        candidates.sort(key=lambda p: p.area, reverse=True)
+        candidates = candidates[:self.nFeatures+maxAdditionalCandidates]
+        
+        return candidates
+
+    def process(self, gray, maxAdditionalCandidates=0, estDSPose=None, roiMargin=None, drawImg=None):
+
+        roiCnt = None
+        if estDSPose:
+            featurePointsGuess = estDSPose.reProject()
+            roiMargin += max([ls.radius for ls in estDSPose.associatedLightSources])
+            (x, y, w, h), roiCnt = regionOfInterest(featurePointsGuess, wMargin=roiMargin, hMargin=roiMargin)
+            roiMask = np.zeros(gray.shape, dtype=np.uint8)
+            cv.drawContours(roiMask, [roiCnt], 0, (255,255,255), -1)
+            gray = cv.bitwise_and(gray, gray, mask=roiMask)
+
+        upper = 256
+
+        img = cv.GaussianBlur(gray.copy(), (3,3),0)
+
+        hist = cv.calcHist([gray], [0], None, [256], [0,256])
+        hist = hist.ravel()
+        histPeaks, _ = signal.find_peaks(hist)
+        histPeaks = list(histPeaks)
+
+        if len(histPeaks) > 0:
+            if np.max(img) == 255:
+                self.threshold = 254
+            else:
+                self.threshold = histPeaks.pop()-1
+        else:
+            self.threshold = np.max(img)-1
+
+        ret, imgTemp = cv.threshold(img, self.threshold, upper, self.thresholdType)
+        _, contours, hier = cv.findContours(imgTemp, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+        candidates = self._calcCandidates(contours)
+        
+        img = img.copy()
+        i = 0
+        while True:
+            i += 1
+
+            if len(candidates) >= self.nFeatures:
+                break
+
+            if len(histPeaks) > 0:
+                self.threshold = histPeaks.pop()-1
+            else:
+                break
+
+            ret, imgTemp = cv.threshold(img, self.threshold, upper, self.thresholdType)
+
+            _, contours, hier = cv.findContours(imgTemp, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+            candidates = self._calcCandidates(contours)
+
+        print("HATS iterations: {}".format(i))
+        print("Threshold: {}".format(self.threshold))
+
+        if self.peakMargin > 0 and len(histPeaks) > 0:
+            self.threshold = histPeaks.pop()
             ret, imgTemp = cv.threshold(img, self.threshold, upper, self.thresholdType)
             _, contours, hier = cv.findContours(imgTemp, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
             candidates = self._calcCandidates(contours)
@@ -1850,7 +2034,6 @@ class AdaptiveThresholdPeak:
     def process(self, gray, maxAdditionalCandidates=0, estDSPose=None, roiMargin=None, drawImg=None):
 
         grayOrig = gray.copy()
-        #gray = cv.GaussianBlur(gray.copy(), (3,3),0)
 
         offset = (0, 0)
         roiCnt = None
@@ -1875,6 +2058,10 @@ class AdaptiveThresholdPeak:
             _, gray = cv.threshold(gray, minIntensity, 256, cv.THRESH_TOZERO)
 
             peakMargin = max([ls.radius for ls in estDSPose.associatedLightSources])
+
+        # blurring seems to help for large resolution 
+        # test_sessions/171121_straight_test.MP4
+        gray = cv.GaussianBlur(gray, (3,3),0)
 
         (peakDilationImg, 
             peaksDilationMasked, 

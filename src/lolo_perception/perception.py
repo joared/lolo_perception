@@ -5,7 +5,7 @@ import numpy as np
 import itertools
 from scipy.spatial.transform import Rotation as R
 
-from lolo_perception.feature_extraction import featureAssociation, featureAssociationSquare, regionOfInterest, LightSourceTrackInitializer, AdaptiveThreshold2, AdaptiveThresholdPeak
+from lolo_perception.feature_extraction import featureAssociation, featureAssociationSquare, featureAssociationSquareImproved, regionOfInterest, LightSourceTrackInitializer, AdaptiveThreshold2, AdaptiveThresholdPeak, ModifiedHATS
 from lolo_perception.pose_estimation import DSPoseEstimator, calcMahalanobisDist
 from lolo_perception.perception_utils import plotPoseImageInfo
 
@@ -38,11 +38,19 @@ class Perception:
 
         # Use HATS when light sources are "large"
         # This feature extractor sorts candidates based on area
+        """
         self.hatsFeatureExtractor = AdaptiveThreshold2(len(self.featureModel.features), 
                                                        marginPercentage=0.01, 
                                                        minArea=10, 
                                                        minRatio=0.2,
                                                        thresholdType=cv.THRESH_BINARY)
+        """
+        self.hatsFeatureExtractor = ModifiedHATS(len(self.featureModel.features), 
+                                                 peakMargin=0, 
+                                                 minArea=10, 
+                                                 minRatio=0,
+                                                 thresholdType=cv.THRESH_BINARY)
+
 
         # Use local peak finding to initialize and when light sources are small
         # This feature extractor sorts candidates based on intensity and then area
@@ -73,7 +81,7 @@ class Perception:
         # valid orientation range [yawMinMax, pitchMinMax, rollMinMax]. Currently not used to disregard
         # invalid poses, but the axis and region of interest will be shown in red when a pose has 
         # an orientation within the valid range 
-        self.validOrientationRange = [np.radians(35), np.radians(30), np.radians(15)]
+        self.validOrientationRange = [np.radians(46), np.radians(15), np.radians(15)]
 
         # mahalanobis distance threshold
         self.mahalanobisDistThresh = 12.592
@@ -85,10 +93,11 @@ class Perception:
         # stages of the perception module:
         # 1 - initialize light source trackers
         # 2 - track light sources
-        # 3 - initialize pose
+        # 3 - initialize pose from light source trackers
+        # ----------------------
         # 4 - acquire pose
         # 5 - track pose
-        self.startStage = 1
+        self.startStage = 4 # 1 or 4
         self.stage = self.startStage
         self.stage2Iterations = 15 # Tracking light sources for this amount of frames
         self.stage4Iterations = 10 # Acquiring pose for this amount of frames
@@ -232,25 +241,39 @@ class Perception:
 
             if len(candidates) >= len(self.featureModel.features):
 
-                lightCandidatePermutations = list(itertools.combinations(candidates, len(self.featureModel.features)))
-                #associatedPermutations = [featureAssociation(self.featureModel.features, candidates)[0] for candidates in lightCandidatePermutations]
-                associatedPermutations = [featureAssociationSquare(self.featureModel.features, 
-                                                                   candidates, 
-                                                                   self.camera.resolution)[0] for candidates in lightCandidatePermutations]
-                    
+                # N_C! / (N_F! * (N_C-N_F)!)
+                lightCandidateCombinations = list(itertools.combinations(candidates, len(self.featureModel.features)))
+                #associatedPermutations = [featureAssociation(self.featureModel.features, candidates)[0] for candidates in lightCandidateCombinations]
+                #associatedPermutations = [featureAssociationSquare(self.featureModel.features, 
+                #                                                   candidates, 
+                #                                                   self.camera.resolution)[0] for candidates in lightCandidateCombinations]
+
+                     
+                # sort combinations
+                if self.featureExtractor == self.hatsFeatureExtractor:
+                    # sort by summed circle extent
+                    lightCandidateCombinations.sort(key=lambda comb: sum([ls.circleExtent() for ls in comb]), reverse=True)
+                else:
+                    # sort by summed intensity
+                    # TODO: not sure how much this improves
+                    lightCandidateCombinations.sort(key=lambda comb: sum([ls.intensity for ls in comb]), reverse=True)
+
+                associatedCombinations = [featureAssociationSquareImproved(self.featureModel.features, candidates)[0] for candidates in lightCandidateCombinations]
+
+
                 # findBestPose finds poses based on reprojection RMSE
                 # the featureModel specifies the placementUncertainty and detectionTolerance
                 # which determines the maximum allowed reprojection RMSE
                 if estDSPose and self.featureExtractor == self.hatsFeatureExtractor:
                     # if we use HATS, presumably we are close and we want to find the best pose
-                    dsPose = self.poseEstimator.findBestPose(associatedPermutations, 
+                    dsPose = self.poseEstimator.findBestPose(associatedCombinations, 
                                                              estDSPose=estDSPose, 
-                                                             firstValid=False, 
+                                                             firstValid=True, 
                                                              mahaDistThresh=self.mahalanobisDistThresh)
                 else:
                     # if we use local peak, presumably we are far away, 
                     # and the first valid pose is good enough in most cases 
-                    dsPose = self.poseEstimator.findBestPose(associatedPermutations, 
+                    dsPose = self.poseEstimator.findBestPose(associatedCombinations, 
                                                              estDSPose=estDSPose, 
                                                              firstValid=True,
                                                              mahaDistThresh=self.mahalanobisDistThresh)

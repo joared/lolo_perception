@@ -153,6 +153,9 @@ class DSPose:
         # been detected in sequence
         self.detectionCount = 1
 
+        # how many attempts the pose estimation algorithm did until it found the pose
+        self.attempts = 0
+
     @property
     def rmse(self):
         if self._rmse:
@@ -355,7 +358,9 @@ class DSPoseEstimator:
 
         poses = []
         rmseRatios = []
+        attempts = 0
         for associtatedLights in associatedLightSourcePermutations:
+            attempts += 1
             dsPose = self.estimatePose(associtatedLights, 
                                     estTranslationVec=estTranslationVec, 
                                     estRotationVec=estRotationVec)
@@ -379,6 +384,7 @@ class DSPoseEstimator:
                     print("Maha dist outlier")
 
                 if valid:
+                    dsPose.attempts = attempts
                     return dsPose
             else:
                 if validRMSE:
@@ -389,6 +395,7 @@ class DSPoseEstimator:
             # Find the best pose in terms of RMSE ratio
             bestIdx = np.argmin(rmseRatios)
             bestPose = poses[bestIdx]
+            bestPose.attempts = attempts
             return bestPose
 
 if __name__ =="__main__":
