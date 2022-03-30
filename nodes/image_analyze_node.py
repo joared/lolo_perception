@@ -314,7 +314,7 @@ class LightSourceTrackAnalyzer:
     def __init__(self):
         cv.imshow("Light source tracking", np.zeros((10,10)))
         cv.setMouseCallback("Light source tracking", self._click)
-        self.lsTracker = LightSourceTrackInitializer()
+        self.lsTracker = LightSourceTrackInitializer(radius=50, maxPatchRadius=100, minPatchRadius=20, maxMovement=50)
         self._newTrackerCenters = []
         self._gray = None
 
@@ -372,10 +372,10 @@ class RCFAnalyzer:
 class PeakAnalyzer:
     def __init__(self):
         self.coordinates = []
-        self.windowRadius = 3
+        self.windowRadius = 20
         self.currentPos = (0,0)
         self.drawImg = None
-        self.p = 0.95
+        self.p = 0.97
 
 
         cv.imshow("Peak analyzer p={}".format(self.p), np.zeros((10,10)))
@@ -407,9 +407,11 @@ class PeakAnalyzer:
             gray = cv.cvtColor(drawImg, cv.COLOR_BGR2GRAY)
 
             for center in self.coordinates:
-                cnt = findPeakContourAt(gray, center, p=self.p)
-                cv.circle(drawImg, center, 1, (255,0,255), 1)
-                cv.drawContours(drawImg, [cnt], 0, (255,0,0), 1)
+                _, grayThreholded = cv.threshold(gray, gray[center[1], center[0]]*self.p, 256, cv.THRESH_TOZERO)
+                cnt, _ = findPeakContourAt(grayThreholded, center)
+                #cv.circle(drawImg, center, 0, (255,0,0), 1)
+                cv.drawContours(drawImg, [cnt], 0, (255,0,0), -1)
+                cv.putText(drawImg, "I: {}".format(gray[center[1], center[0]]), (center[0]+20, center[1]-20), 1, 1, color=(255,0,0))
 
             cv.circle(drawImg, self.currentPos, self.windowRadius, (0,255,0), 1)
             cv.imshow("Peak analyzer p={}".format(self.p), drawImg)
@@ -425,15 +427,15 @@ class ImageAnalyzeNode:
             self.cameraInfoMsg = readCameraYaml(cameraYamlPath)
             projectionMatrix = np.array(self.cameraInfoMsg.P, dtype=np.float32).reshape((3,4))[:,:3]
             
-            self.camera = Camera(cameraMatrix=projectionMatrix, 
-                                distCoeffs=np.zeros((1,4), dtype=np.float32),
-                                projectionMatrix=None,
-                                resolution=(self.cameraInfoMsg.height, self.cameraInfoMsg.width))
-
-            #self.camera = Camera(cameraMatrix=np.array(self.cameraInfoMsg.K, dtype=np.float32).reshape((3,3)), 
-            #                    distCoeffs=np.array(self.cameraInfoMsg.D, dtype=np.float32),
-            #                    projectionMatrix=projectionMatrix,
+            #self.camera = Camera(cameraMatrix=projectionMatrix, 
+            #                    distCoeffs=np.zeros((1,4), dtype=np.float32),
+            #                    projectionMatrix=None,
             #                    resolution=(self.cameraInfoMsg.height, self.cameraInfoMsg.width))
+
+            self.camera = Camera(cameraMatrix=np.array(self.cameraInfoMsg.K, dtype=np.float32).reshape((3,3)), 
+                                distCoeffs=np.array(self.cameraInfoMsg.D, dtype=np.float32),
+                                projectionMatrix=projectionMatrix,
+                                resolution=(self.cameraInfoMsg.height, self.cameraInfoMsg.width))
         else:
             self.cameraInfoMsg = None
             self.camera = Camera(cameraMatrix=np.eye(3, dtype=np.float32).reshape((3,3)), 
@@ -951,6 +953,24 @@ class ImageAnalyzeNode:
         return grayMasked
 
     def _histogram(self, gray):
+        # 1D histogram
+        from scipy import signal
+        hist = cv.calcHist([gray], [0], None, [256], [0,256])
+        hist = hist.ravel()
+        peaks, _ = signal.find_peaks(hist)
+
+        print(peaks)
+        plt.cla()
+        
+        N = 200
+        plt.plot(hist[:])
+        plt.xlim([0,256])
+        #plt.hist(gray.ravel(),256,[0,256])
+        for peak in peaks:
+            plt.axvline(peak, ymax=hist[peak], c="r")
+        return
+
+        # 2D histogram
         xx, yy = np.mgrid[0:gray.shape[0], 0:gray.shape[1]]
         plt.cla()
         #gray = cv.flip(gray, 1)
@@ -1058,8 +1078,8 @@ class ImageAnalyzeNode:
             self._publish(imgColorRaw, imgRect)
             print("Frame " + str(i))
             lightSourceAnalyzer.update(imgRect)
-            #rcfAnalyzer.update(imgRect)
-            #peakAnalyzer.update(imgRect)
+            rcfAnalyzer.update(imgRect)
+            peakAnalyzer.update(imgRect)
             if analyzeImages:
                 key = self.analyzeImage(imgName, imgColorRaw, imgRect, labeledImgs)
             else:
@@ -1177,7 +1197,7 @@ if __name__ == "__main__":
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/contour.yaml")
     videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/171121/171121_straight_test.MP4")
     #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/271121/271121_5planar_1080p.MP4")
-    #imgLabelNode.analyzeVideoImages(datasetPath, labelFile, videoPath, startFrame=311)
+    #imgLabelNode.analyzeVideoImages(datasetPath, labelFile, videoPath, startFrame=100)
 
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/usb_camera_720p_sim.yaml")
     rosbagFile = "sim_bag.bag"
@@ -1187,7 +1207,7 @@ if __name__ == "__main__":
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/usb_camera_720p_8.yaml")
     rosbagFile = "ice.bag"
     rosbagPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), join("rosbags", rosbagFile))
-    #imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "lolo_camera/image_raw", startFrame=420, analyzeImages=True)
+    #imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "lolo_camera/image_raw", startFrame=400, analyzeImages=True)
 
     imgLabelNode = ImageAnalyzeNode()
     #imgLabelNode.analyzeImageDataset(datasetPath, labelFile, startFrame=1)
