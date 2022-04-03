@@ -196,8 +196,8 @@ class DSPose:
                              self.featureModel.features)
 
     def calcRMSE(self):
-        if self._rmse or self._rmseMax:
-            raise Exception("NONONO")
+        if self._rmse:
+            return self._rmse
 
         errs, rmse = reprojectionError(self.translationVector, 
                                        self.rotationVector, 

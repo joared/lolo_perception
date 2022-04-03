@@ -54,6 +54,20 @@ def plotPoseImageInfo(poseImg,
                     color=axisColor,
                     thickness=5) 
     if dsPose:
+        """
+        # "Cone angle"
+        coneX = np.rad2deg(np.arctan(abs(dsPose.translationVector[0]) / abs(dsPose.translationVector[2])))
+        coneY = np.rad2deg(np.arctan(abs(dsPose.translationVector[1]) / abs(dsPose.translationVector[2])))
+        org = 10, camera.resolution[0]-10
+        cv.putText(poseImg, 
+                    "Cone angle x: {}, y: {}".format(round(coneX), round(coneY)), 
+                    org, 
+                    cv.FONT_HERSHEY_SIMPLEX, 
+                    fontScale=1, 
+                    thickness=2, 
+                    color=(0,0,255))
+        """
+
         plotPoseInfo(poseImg, 
                     dsPose.translationVector, 
                     dsPose.rotationVector,

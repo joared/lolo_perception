@@ -957,17 +957,24 @@ class ImageAnalyzeNode:
         from scipy import signal
         hist = cv.calcHist([gray], [0], None, [256], [0,256])
         hist = hist.ravel()
+        #hist = - hist # find valleys
+
         peaks, _ = signal.find_peaks(hist)
 
         print(peaks)
+        ########### plot peaks ##############
         plt.cla()
-        
         N = 200
-        plt.plot(hist[:])
-        plt.xlim([0,256])
-        #plt.hist(gray.ravel(),256,[0,256])
+        plt.plot(hist)
+
         for peak in peaks:
-            plt.axvline(peak, ymax=hist[peak], c="r")
+            if peak >= N:
+                plt.axvline(peak, ymin=0, ymax=hist[peak]/max(hist[N:]), c="r")
+
+        plt.xlim([N, 256])
+        plt.ylim([0, max(hist[N:])])
+        plt.pause(0.0001)
+        ########### plot peaks ##############
         return
 
         # 2D histogram
@@ -1016,7 +1023,7 @@ class ImageAnalyzeNode:
                 #imgRect = cv.bitwise_and(imgRect, imgRect, mask=mask)
                 cv.circle(tmpFrame, self._coordinatePressed, self._roi[2], (0,255,0), 2)
 
-            cv.imshow("frame", tmpFrame)
+            cv.imshow("frame", cv.resize(tmpFrame, (1280, 720)))
             cv.setWindowTitle("frame", imgName)
             cv.setMouseCallback("frame", self._click)
 
@@ -1197,12 +1204,12 @@ if __name__ == "__main__":
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/contour.yaml")
     videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/171121/171121_straight_test.MP4")
     #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/271121/271121_5planar_1080p.MP4")
-    #imgLabelNode.analyzeVideoImages(datasetPath, labelFile, videoPath, startFrame=100)
+    imgLabelNode.analyzeVideoImages(datasetPath, labelFile, videoPath, startFrame=50)
 
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/usb_camera_720p_sim.yaml")
     rosbagFile = "sim_bag.bag"
     rosbagPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), join("rosbags", rosbagFile))
-    imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "/lolo/sim/camera_aft/image_color", startFrame=4000, analyzeImages=True)
+    #imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "/lolo/sim/camera_aft/image_color", startFrame=4000, analyzeImages=True)
 
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/usb_camera_720p_8.yaml")
     rosbagFile = "ice.bag"

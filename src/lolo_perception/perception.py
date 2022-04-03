@@ -5,9 +5,18 @@ import numpy as np
 import itertools
 from scipy.spatial.transform import Rotation as R
 
-from lolo_perception.feature_extraction import featureAssociation, featureAssociationSquare, featureAssociationSquareImproved, regionOfInterest, LightSourceTrackInitializer, AdaptiveThreshold2, AdaptiveThresholdPeak, ModifiedHATS
+from lolo_perception.feature_extraction import featureAssociation, featureAssociationSquare, featureAssociationSquareImproved, regionOfInterest, LightSourceTrackInitializer, AdaptiveThreshold2, AdaptiveThresholdPeak, ModifiedHATS, LocalMaxHATS
 from lolo_perception.pose_estimation import DSPoseEstimator, calcMahalanobisDist
 from lolo_perception.perception_utils import plotPoseImageInfo
+
+class AssociateCombinationGenerator:
+    def __init__(self, lsCombs, associateFunc):
+        self._comb = lsCombs
+        self._assFunc = associateFunc
+
+    def __iter__(self):
+        for lsComb in self._comb:
+            yield self._assFunc(lsComb)[0]
 
 class Perception:
     def __init__(self, camera, featureModel):
@@ -38,19 +47,25 @@ class Perception:
 
         # Use HATS when light sources are "large"
         # This feature extractor sorts candidates based on area
+        
+        self.localMaxHATS = LocalMaxHATS(len(self.featureModel.features), 
+                                         kernelSize=11, 
+                                         p=None, 
+                                         maxIntensityChange=0.7)
+
         """
         self.hatsFeatureExtractor = AdaptiveThreshold2(len(self.featureModel.features), 
-                                                       marginPercentage=0.01, 
-                                                       minArea=10, 
+                                                       marginPercentage=0.01,
+                                                       minArea=10,
                                                        minRatio=0.2,
                                                        thresholdType=cv.THRESH_BINARY)
+        
         """
         self.hatsFeatureExtractor = ModifiedHATS(len(self.featureModel.features), 
                                                  peakMargin=0, 
                                                  minArea=10, 
-                                                 minRatio=0,
+                                                 minRatio=0.2,
                                                  thresholdType=cv.THRESH_BINARY)
-
 
         # Use local peak finding to initialize and when light sources are small
         # This feature extractor sorts candidates based on intensity and then area
@@ -228,9 +243,12 @@ class Perception:
                 # choose feature extractor
                 self.featureExtractor = self.peakFeatureExtractor
                 if estDSPose:
-                    if all([ls.area > self.hatsFeatureExtractor.minArea for ls in estDSPose.associatedLightSources]):
+                    areaScale = 2
+                    if all([ls.area > areaScale*self.hatsFeatureExtractor.minArea for ls in estDSPose.associatedLightSources]):
                         # change to hats
                         self.featureExtractor = self.hatsFeatureExtractor
+
+                #self.featureExtractor = self.localMaxHATS #TODO remove
 
                 # extract light source candidates from image
                 _, candidates, roiCntUpdated = self.featureExtractor(gray, 
@@ -243,23 +261,34 @@ class Perception:
 
                 # N_C! / (N_F! * (N_C-N_F)!)
                 lightCandidateCombinations = list(itertools.combinations(candidates, len(self.featureModel.features)))
-                #associatedPermutations = [featureAssociation(self.featureModel.features, candidates)[0] for candidates in lightCandidateCombinations]
-                #associatedPermutations = [featureAssociationSquare(self.featureModel.features, 
-                #                                                   candidates, 
-                #                                                   self.camera.resolution)[0] for candidates in lightCandidateCombinations]
-
                      
+                # TODO: does this take a lot of time?
                 # sort combinations
                 if self.featureExtractor == self.hatsFeatureExtractor:
                     # sort by summed circle extent
                     lightCandidateCombinations.sort(key=lambda comb: sum([ls.circleExtent() for ls in comb]), reverse=True)
-                else:
+                elif self.featureExtractor == self.peakFeatureExtractor:
                     # sort by summed intensity
                     # TODO: not sure how much this improves
+                    #lightCandidateCombinations.sort(key=lambda comb: (sum([ls.intensity for ls in comb]), sum([ls.area for ls in comb])), reverse=True)
                     lightCandidateCombinations.sort(key=lambda comb: sum([ls.intensity for ls in comb]), reverse=True)
+                else:
+                    print("sorting by intensity")
+                    lightCandidateCombinations.sort(key=lambda comb: sum([ls.intensity for ls in comb]), reverse=True)
+                    
 
-                associatedCombinations = [featureAssociationSquareImproved(self.featureModel.features, candidates)[0] for candidates in lightCandidateCombinations]
+                # TODO: this probably takes a lot of time
+                #associatedCombinations = [featureAssociation(self.featureModel.features, candidates)[0] for candidates in lightCandidateCombinations]
+                #associatedCombinations = [featureAssociationSquare(self.featureModel.features, 
+                #                                                   candidates, 
+                #                                                   self.camera.resolution)[0] for candidates in lightCandidateCombinations]
+                #associatedCombinations = [featureAssociationSquareImproved(self.featureModel.features, candidates)[0] for candidates in lightCandidateCombinations]
 
+                def assFunc(comb):
+                    return featureAssociationSquare(self.featureModel.features, comb, self.camera.resolution)
+
+                associatedCombinations = AssociateCombinationGenerator(lightCandidateCombinations, 
+                                                                       assFunc)
 
                 # findBestPose finds poses based on reprojection RMSE
                 # the featureModel specifies the placementUncertainty and detectionTolerance
