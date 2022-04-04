@@ -6,7 +6,7 @@
   <arg name="hz" default="30"/>
   <arg name="rviz" default="false"/>
 
-  <include file="$(find lolo_perception)/launch/usb_cam.launch" if="$(eval arg('video_device') == true)">
+  <include file="$(find lolo_perception)/launch/usb_cam.launch" if="$(eval arg('video_device') != false)">
     <arg name="video_device" value="$(arg video_device)"/>
   </include> 
 

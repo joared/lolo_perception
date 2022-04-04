@@ -31,7 +31,7 @@ class Perception:
 
         minPatchRadius = 7
         radius = 7
-        maxPatchRadius = 20
+        maxPatchRadius = 40
         maxMovement = 20
 
 
@@ -48,11 +48,12 @@ class Perception:
         # Use HATS when light sources are "large"
         # This feature extractor sorts candidates based on area
         
+        """
         self.localMaxHATS = LocalMaxHATS(len(self.featureModel.features), 
                                          kernelSize=11, 
                                          p=None, 
                                          maxIntensityChange=0.7)
-
+        """
         """
         self.hatsFeatureExtractor = AdaptiveThreshold2(len(self.featureModel.features), 
                                                        marginPercentage=0.01,
@@ -62,9 +63,10 @@ class Perception:
         
         """
         self.hatsFeatureExtractor = ModifiedHATS(len(self.featureModel.features), 
-                                                 peakMargin=0, 
+                                                 peakMargin=0, # this should be zero
                                                  minArea=10, 
                                                  minRatio=0.2,
+                                                 maxIntensityChange=0.7,
                                                  thresholdType=cv.THRESH_BINARY)
 
         # Use local peak finding to initialize and when light sources are small
@@ -248,7 +250,7 @@ class Perception:
                         # change to hats
                         self.featureExtractor = self.hatsFeatureExtractor
 
-                #self.featureExtractor = self.localMaxHATS #TODO remove
+                #self.featureExtractor = self.peakFeatureExtractor #TODO remove
 
                 # extract light source candidates from image
                 _, candidates, roiCntUpdated = self.featureExtractor(gray, 
@@ -273,8 +275,8 @@ class Perception:
                     #lightCandidateCombinations.sort(key=lambda comb: (sum([ls.intensity for ls in comb]), sum([ls.area for ls in comb])), reverse=True)
                     lightCandidateCombinations.sort(key=lambda comb: sum([ls.intensity for ls in comb]), reverse=True)
                 else:
-                    print("sorting by intensity")
-                    lightCandidateCombinations.sort(key=lambda comb: sum([ls.intensity for ls in comb]), reverse=True)
+                    print("sorting by intensity, then area")
+                    lightCandidateCombinations.sort(key=lambda comb: (sum([ls.intensity for ls in comb]), sum([ls.area for ls in comb])), reverse=True)
                     
 
                 # TODO: this probably takes a lot of time

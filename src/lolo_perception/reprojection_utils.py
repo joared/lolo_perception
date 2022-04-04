@@ -92,6 +92,62 @@ def plotReprojection(points, cameraResolution, f, deltaE, rangeMeter, fScale=1./
 
 ###############
 
+
+def NEW_calcPoseReprojectionRMSEThreshold(translationVec, rotationVec, camera, featureModel, showImg=False):
+    rotMat = R.from_rotvec(rotationVec).as_dcm()
+
+    reprErrs = []
+    pointsX = []
+    for fp in featureModel.features:
+        point3D = np.matmul(rotMat, fp.transpose()) + translationVec.transpose()
+        pointsX.append((point3D[0], point3D[2]))
+        
+        maxReprojErrX = maxReprojectionError((point3D[0], point3D[2]), camera.cameraMatrix[0, 0], deltaE=featureModel.uncertainty)
+        maxReprojErrY = maxReprojectionError((point3D[1], point3D[2]), camera.cameraMatrix[1, 1], deltaE=featureModel.uncertainty)
+        #reprErrs.append(np.linalg.norm([maxReprojErrX, maxReprojErrY]))
+        reprErrs.append(max(abs(maxReprojErrX), abs(maxReprojErrY)))
+
+    reprErrs = np.array(reprErrs)
+    maxRMSE = np.sum(reprErrs)/len(reprErrs)
+
+    if showImg:
+        rangeMeter = featureModel.maxRad*40 # cover 40*max rad of the feature model
+        img = plotReprojection(np.array(pointsX), 
+                                camera.resolution, 
+                                camera.cameraMatrix[0, 0], 
+                                featureModel.uncertainty, 
+                                rangeMeter=rangeMeter,
+                                fScale=1./20)
+        img = cv.flip(img, 0)
+        
+        maxPixel = camera.resolution[1]
+        meter = camera.resolution[0]/rangeMeter
+        center = maxPixel/2, 0
+
+        center2D = translationVec[0]*meter, translationVec[2]*meter
+        center2D = toValidPixel(adjustToCenter(center, center2D))
+        # x-axis
+        xAxis = translationVec + np.matmul(rotMat, [featureModel.maxX, 0, 0])
+        xAxis = xAxis[0]*meter, xAxis[2]*meter
+        xAxis = toValidPixel(adjustToCenter(center, xAxis))
+        cv.line(img, center2D, xAxis, color=(0,0,255))
+
+        yAxis = translationVec + np.matmul(rotMat, [0, featureModel.maxX, 0])
+        yAxis = yAxis[0]*meter, yAxis[2]*meter
+        yAxis = toValidPixel(adjustToCenter(center, yAxis))
+        cv.line(img, center2D, yAxis, color=(0,255,0))
+
+        zAxis = translationVec + np.matmul(rotMat, [0, 0, featureModel.maxX])
+        zAxis = zAxis[0]*meter, zAxis[2]*meter
+        zAxis = toValidPixel(adjustToCenter(center, zAxis))
+        cv.line(img, center2D, zAxis, color=(255,0,0))
+
+        img = cv.flip(img, 0)
+        cv.imshow("reprojection", img)
+        cv.waitKey(1)
+
+    return maxRMSE
+
 def calcPoseReprojectionRMSEThreshold(translationVec, rotationVec, camera, featureModel, showImg=False):
     rotMat = R.from_rotvec(rotationVec).as_dcm()
 

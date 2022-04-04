@@ -1972,7 +1972,7 @@ class AdaptiveThreshold2:
         return self.img, candidates, roiCnt
 
 class ModifiedHATS:
-    def __init__(self, nFeatures, peakMargin=0, minArea=1, minRatio=0, thresholdType=cv.THRESH_BINARY):
+    def __init__(self, nFeatures, peakMargin=0, minArea=1, minRatio=0, maxIntensityChange=0.7, thresholdType=cv.THRESH_BINARY):
         """
         try cv.THRESH_OTSU?
         """
@@ -1981,6 +1981,7 @@ class ModifiedHATS:
         self.peakMargin = peakMargin # 0-1
         self.minArea = minArea
         self.minRatio = minRatio
+        self.maxIntensityChange = maxIntensityChange
         self.thresholdType = thresholdType 
         self.img = np.zeros((10, 10)) # store the last processed image
 
@@ -2017,6 +2018,12 @@ class ModifiedHATS:
 
             offset = (x, y)
             gray = gray[y:y+h, x:x+w]
+
+            minIntensity = min([ls.intensity for ls in estDSPose.associatedLightSources])
+            minIntensity = self.maxIntensityChange*minIntensity
+
+            # local max that are below 70% of the mean intensity of the previous light sources are discarded
+            _, gray = cv.threshold(gray, minIntensity, 256, cv.THRESH_TOZERO)
 
         upper = 256
 
@@ -2151,7 +2158,8 @@ class AdaptiveThresholdPeak:
 
         # blurring seems to help for large resolution 
         # test_sessions/171121_straight_test.MP4
-        gray = cv.GaussianBlur(gray, (3,3),0)
+        gray = cv.GaussianBlur(gray, (3,3), 0)
+        #gray = cv.erode(gray, cv.getStructuringElement(cv.MORPH_RECT, (5,5)))
         grayOrig = gray.copy() 
 
         (peakDilationImg, 

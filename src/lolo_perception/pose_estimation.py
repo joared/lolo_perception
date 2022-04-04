@@ -148,6 +148,7 @@ class DSPose:
         self._rmseMax = None
 
         self.mahaDist = None
+        self.mahaDistThresh = None
 
         # increase this to keep track of how many valid poses have 
         # been detected in sequence
@@ -195,7 +196,7 @@ class DSPose:
                              self.camera, 
                              self.featureModel.features)
 
-    def calcRMSE(self):
+    def calcRMSE(self, showImg=False):
         if self._rmse:
             return self._rmse
 
@@ -208,7 +209,7 @@ class DSPose:
                                                          self.rotationVector, 
                                                          self.camera, 
                                                          self.featureModel,
-                                                         showImg=False)
+                                                         showImg=showImg)
 
         lightSourceReprojections = np.array([ls.radius for ls in self.associatedLightSources], dtype=np.float32)
         #rmseMaxLightsource = np.sqrt(np.sum(lightSourceReprojections**2)/len(self.associatedLightSources))
@@ -219,7 +220,7 @@ class DSPose:
         self._rmseMax += 1 # add 1 pixel for far distance detections
         return self._rmse, self._rmseMax
 
-    def calcCovariance(self, pixelCovariance=None):
+    def calcCovariance(self, pixelCovariance=None, sigmaScale=4.0):
         # AUV homing and docking for remote operations
         # About covariance: https://manialabs.wordpress.com/2012/08/06/covariance-matrices-with-a-practical-example/
         # Article: https://www.sciencedirect.com/science/article/pii/S0029801818301367
@@ -232,8 +233,8 @@ class DSPose:
         if pixelCovariance is None:
             # https://www.thoughtco.com/range-rule-for-standard-deviation-3126231
             # 2 - 95 %, 4 - 99 %
-            sigmaX = self.rmseMax/4
-            sigmaY = self.rmseMax/4
+            sigmaX = self.rmseMax/sigmaScale
+            sigmaY = self.rmseMax/sigmaScale
             pixelCovariance = np.array([[sigmaX**2, 0], [0, sigmaY**2]])
 
         covariance = calcPoseCovarianceFixedAxis(self.camera, 
@@ -364,7 +365,7 @@ class DSPoseEstimator:
             dsPose = self.estimatePose(associtatedLights, 
                                     estTranslationVec=estTranslationVec, 
                                     estRotationVec=estRotationVec)
-            
+            dsPose.mahaDistThresh = mahaDistThresh
             if estDSPose:
                 # If estDSPose is given, mahaDistThresh has to be given
                 if mahaDistThresh is None:
@@ -387,7 +388,7 @@ class DSPoseEstimator:
                     dsPose.attempts = attempts
                     return dsPose
             else:
-                if validRMSE:
+                if valid:
                     rmseRatios.append(float(dsPose.rmse)/dsPose.rmseMax)
                     poses.append(dsPose)
 

@@ -44,6 +44,15 @@ def plotPoseImageInfo(poseImg,
                        fontScale=1, 
                        thickness=2, 
                        color=(0,0,255))
+
+            # mahanalobis distance meter
+            xStart = roiCntUpdated[2][0]+8
+            yStart = roiCntUpdated[2][1]
+            xEnd = xStart
+            yEnd = roiCntUpdated[1][1]
+            #cv.line(poseImg, (xStart, yStart), (xEnd, yEnd), (255,255,255), 15)
+            mahaDistRatio = dsPose.mahaDist/dsPose.mahaDistThresh
+            cv.line(poseImg, (xStart, yStart), (xEnd, int(mahaDistRatio*(yEnd - yStart)) + yStart), (0,0,255), 10)
         if dsPose:
             plotAxis(poseImg, 
                     dsPose.translationVector, 
@@ -85,11 +94,12 @@ def plotPoseImageInfo(poseImg,
 
     plotCrosshair(poseImg, camera)
     
+
+    # progress bar for light source tracker and aquiring pose
     xStart = camera.resolution[1]-30
     yStart = camera.resolution[0]-10
     xEnd = xStart
     yEnd = yStart - 200
-
     cv.line(poseImg, (xStart, yStart), (xEnd, yEnd), (255,255,255), 15)
     cv.line(poseImg, (xStart, yStart), (xEnd, int(progress*(yEnd - yStart)) + yStart), (0,255,0), 10)
 
