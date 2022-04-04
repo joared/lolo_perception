@@ -46,13 +46,23 @@ def plotPoseImageInfo(poseImg,
                        color=(0,0,255))
 
             # mahanalobis distance meter
+            mahaDistRatio = dsPose.mahaDist/dsPose.mahaDistThresh
+
+            """
             xStart = roiCntUpdated[2][0]+8
             yStart = roiCntUpdated[2][1]
             xEnd = xStart
             yEnd = roiCntUpdated[1][1]
-            #cv.line(poseImg, (xStart, yStart), (xEnd, yEnd), (255,255,255), 15)
-            mahaDistRatio = dsPose.mahaDist/dsPose.mahaDistThresh
+            
             cv.line(poseImg, (xStart, yStart), (xEnd, int(mahaDistRatio*(yEnd - yStart)) + yStart), (0,0,255), 10)
+            """
+
+            xStart = roiCntUpdated[2][0]+3
+            yStart = roiCntUpdated[2][1]+2
+            xEnd = xStart + 10
+            yEnd = roiCntUpdated[1][1]
+            
+            cv.rectangle(poseImg, (xStart, yStart), (xEnd, int(mahaDistRatio*(yEnd - yStart)) + yStart), color=(0,0,255), thickness=-1)
         if dsPose:
             plotAxis(poseImg, 
                     dsPose.translationVector, 
