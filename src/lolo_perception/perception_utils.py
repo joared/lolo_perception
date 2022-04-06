@@ -38,7 +38,7 @@ def plotPoseImageInfo(poseImg,
                        color=(0,255,0))
 
             cv.putText(poseImg, 
-                       "#{}".format(dsPose.attempts), 
+                       "{}/{}".format(dsPose.attempts, dsPose.combinations), 
                        (roiCntUpdated[1][0]-20, roiCntUpdated[1][1]-10), 
                        cv.FONT_HERSHEY_SIMPLEX, 
                        fontScale=1, 

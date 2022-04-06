@@ -5,7 +5,7 @@ import numpy as np
 import itertools
 from scipy.spatial.transform import Rotation as R
 
-from lolo_perception.feature_extraction import featureAssociation, featureAssociationSquare, featureAssociationSquareImproved, regionOfInterest, LightSourceTrackInitializer, AdaptiveThreshold2, AdaptiveThresholdPeak, ModifiedHATS, LocalMaxHATS
+from lolo_perception.feature_extraction import featureAssociation, featureAssociationSquare, featureAssociationSquareImproved, regionOfInterest, localMax, LightSourceTrackInitializer, AdaptiveThreshold2, AdaptiveThresholdPeak, ModifiedHATS, LocalMaxHATS
 from lolo_perception.pose_estimation import DSPoseEstimator, calcMahalanobisDist
 from lolo_perception.perception_utils import plotPoseImageInfo
 
@@ -17,6 +17,9 @@ class AssociateCombinationGenerator:
     def __iter__(self):
         for lsComb in self._comb:
             yield self._assFunc(lsComb)[0]
+
+    def __len__(self):
+        return len(self._comb)
 
 class Perception:
     def __init__(self, camera, featureModel):
@@ -30,8 +33,8 @@ class Perception:
         #maxMovement = int(minPatchRadius * 1.5)
 
         minPatchRadius = 7
-        radius = 7
-        maxPatchRadius = 40
+        radius = 10
+        maxPatchRadius = 100
         maxMovement = 20
 
 
@@ -60,21 +63,28 @@ class Perception:
                                                        minArea=10,
                                                        minRatio=0.2,
                                                        thresholdType=cv.THRESH_BINARY)
-        
         """
+        
+        minArea = 10
+        self.areaScale = 3 # change to HATS when all areas > minArea*areaScale 
+        
         self.hatsFeatureExtractor = ModifiedHATS(len(self.featureModel.features), 
                                                  peakMargin=0, # this should be zero
-                                                 minArea=10, 
-                                                 minRatio=0.2,
+                                                 minArea=minArea, 
+                                                 minRatio=0.2, # might not be good for outlier detection, convex hull instead?
                                                  maxIntensityChange=0.7,
-                                                 thresholdType=cv.THRESH_BINARY)
+                                                 thresholdType=cv.THRESH_BINARY,
+                                                 mode=ModifiedHATS.MODE_VALLEY,
+                                                 showHistogram=False)
 
         # Use local peak finding to initialize and when light sources are small
         # This feature extractor sorts candidates based on intensity and then area
         self.peakFeatureExtractor = AdaptiveThresholdPeak(len(self.featureModel.features), 
                                                           kernelSize=11, 
-                                                          p=0.97,
-                                                          maxIntensityChange=0.7)
+                                                          p=0.97, #0.97 # TODO: this is good for image 272 with planar configuration
+                                                          maxIntensityChange=0.7,
+                                                          minArea=minArea,
+                                                          minCircleExtent=0.2)
         
         # start with peak
         self.featureExtractor = self.peakFeatureExtractor
@@ -142,7 +152,8 @@ class Perception:
             estDSPose.rotationVector = dsToC2Rot.as_rotvec()
 
         # increase covariance
-        rotK = 5e-5
+        #rotK = 5e-5
+        rotK = 5e-4
         covNew = estDSPose.covariance + np.eye(6)*rotK
         estDSPose._covariance = covNew
 
@@ -239,16 +250,26 @@ class Perception:
 
         elif self.stage in (3, 4, 5):
             if self.stage == 3:
+                self.lightSourceTracker.update(gray, drawImg=processedImg)
                 candidates = self.lightSourceTracker.getCandidates(len(self.featureModel.features) + self.maxAdditionalCandidates)
                 roiCntUpdated = roiCnt
             elif self.stage in (4,5):
                 # choose feature extractor
-                self.featureExtractor = self.peakFeatureExtractor
+                
                 if estDSPose:
-                    areaScale = 2
-                    if all([ls.area > areaScale*self.hatsFeatureExtractor.minArea for ls in estDSPose.associatedLightSources]):
-                        # change to hats
+                    if self.featureExtractor == self.peakFeatureExtractor:
+                        changeToHATS = all([ls.area > self.areaScale*self.hatsFeatureExtractor.minArea for ls in estDSPose.associatedLightSources])
+                    else:
+                        changeToHATS = all([ls.area > self.hatsFeatureExtractor.minArea for ls in estDSPose.associatedLightSources])
+                        
+                    if changeToHATS:
                         self.featureExtractor = self.hatsFeatureExtractor
+                    else:
+                        self.featureExtractor = self.peakFeatureExtractor
+                else:
+                    self.featureExtractor = self.peakFeatureExtractor
+
+                    #self.featureExtractor = self.hatsFeatureExtractor # TODO: remove
 
                 #self.featureExtractor = self.peakFeatureExtractor #TODO remove
 

@@ -21,7 +21,7 @@ def calcMahalanobisDist(estDSPose, dsPose, SInv=None):
         SInv = np.linalg.inv(estDSPose.covariance)
 
     translErr = estDSPose.translationVector - dsPose.translationVector
-    translErr *= 0
+    translErr *= 0 # ignore translation for now
     
     r1 = R.from_rotvec(estDSPose.rotationVector)
     r2 = R.from_rotvec(dsPose.rotationVector)
@@ -156,6 +156,8 @@ class DSPose:
 
         # how many attempts the pose estimation algorithm did until it found the pose
         self.attempts = 0
+        # number of total combinations that the pose algorithm considered 
+        self.combinations = 0 
 
     @property
     def rmse(self):
@@ -199,6 +201,7 @@ class DSPose:
     def calcRMSE(self, showImg=False):
         if self._rmse:
             return self._rmse
+            #raise Exception("Already calculated")
 
         errs, rmse = reprojectionError(self.translationVector, 
                                        self.rotationVector, 
@@ -360,6 +363,7 @@ class DSPoseEstimator:
         poses = []
         rmseRatios = []
         attempts = 0
+        N = len(associatedLightSourcePermutations)
         for associtatedLights in associatedLightSourcePermutations:
             attempts += 1
             dsPose = self.estimatePose(associtatedLights, 
@@ -386,6 +390,7 @@ class DSPoseEstimator:
 
                 if valid:
                     dsPose.attempts = attempts
+                    dsPose.combinations = N
                     return dsPose
             else:
                 if valid:
@@ -397,6 +402,7 @@ class DSPoseEstimator:
             bestIdx = np.argmin(rmseRatios)
             bestPose = poses[bestIdx]
             bestPose.attempts = attempts
+            dsPose.combinations = N
             return bestPose
 
 if __name__ =="__main__":

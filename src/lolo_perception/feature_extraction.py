@@ -791,7 +791,7 @@ def findNPeaks(gray, kernel, p, n, margin=1, offset=(0,0), drawImg=None, drawInv
             peakCenters.append((center[0]+offset[0], center[1]+offset[1]))
             peakContours.append(cntPeakOffset)
             if drawImg is not None:
-                cv.drawContours(drawImg, [cntPeakOffset], 0, (255, 0, 0), 1)
+                cv.drawContours(drawImg, [cntPeakOffset], 0, (255, 0, 0), -1)
         grayMasked = cv.drawContours(grayMasked, [cntPeak], 0, (0, 0, 0), -1)
         peaksDilationMasked = cv.drawContours(peaksDilationMasked, [cntPeak], 0, (0, 0, 0), -1)
     
@@ -1972,7 +1972,10 @@ class AdaptiveThreshold2:
         return self.img, candidates, roiCnt
 
 class ModifiedHATS:
-    def __init__(self, nFeatures, peakMargin=0, minArea=1, minRatio=0, maxIntensityChange=0.7, thresholdType=cv.THRESH_BINARY):
+    MODE_PEAK = "peak"
+    MODE_VALLEY = "valley"
+    
+    def __init__(self, nFeatures, peakMargin=0, minArea=1, minRatio=0, maxIntensityChange=0.7, thresholdType=cv.THRESH_BINARY, mode="valley", showHistogram=False):
         """
         try cv.THRESH_OTSU?
         """
@@ -1982,7 +1985,12 @@ class ModifiedHATS:
         self.minArea = minArea
         self.minRatio = minRatio
         self.maxIntensityChange = maxIntensityChange
-        self.thresholdType = thresholdType 
+        self.thresholdType = thresholdType
+
+        assert mode in ("peak", "valley"), "Invalid mode '', must be '{}}' or '{}'".format(mode, self.MODE_PEAK, self.MODE_VALLEY)
+        self.mode = mode
+        self.showHistogram = showHistogram
+
         self.img = np.zeros((10, 10)) # store the last processed image
 
     def __call__(self, *args, **kwargs):
@@ -1990,13 +1998,15 @@ class ModifiedHATS:
 
     def _calcCandidates(self, contours):
         candidates = []
+        removedCandidates = []
         for cnt in contours:
             #if cv.contourArea(cnt)+1 > self.minArea and contourRatio(cnt) > self.minRatio:
-            if cv.contourArea(cnt) > self.minArea:
-                if contourRatio(cnt) > self.minRatio:
-                    candidates.append(cnt)
+            if cv.contourArea(cnt) > self.minArea and contourRatio(cnt) > self.minRatio:
+                candidates.append(cnt)
+            else:
+                removedCandidates.append(cnt)
 
-        return candidates
+        return candidates, removedCandidates
 
     def _sortLightSources(self, candidates, maxAdditionalCandidates):
         candidates.sort(key=lambda p: p.area, reverse=True)
@@ -2007,6 +2017,7 @@ class ModifiedHATS:
     def process(self, gray, maxAdditionalCandidates=0, estDSPose=None, roiMargin=None, drawImg=None):
 
         roiCnt = None
+        offset = (0, 0)
         if estDSPose:
             featurePointsGuess = estDSPose.reProject()
             roiMargin += max([ls.radius for ls in estDSPose.associatedLightSources])
@@ -2027,42 +2038,32 @@ class ModifiedHATS:
 
         upper = 256
 
-        img = cv.GaussianBlur(gray.copy(), (3,3),0)
+        img = gray.copy()
+        img = cv.GaussianBlur(img, (3,3), 0)
 
         #localMaxImg = localMax(img) # only use peaks defined by local maximas
         hist = cv.calcHist([img], [0], None, [256], [0,256])
         hist = hist.ravel()
-        hist = -hist # find valleys
-        histPeaks, _ = signal.find_peaks(hist)
+
+        if self.mode == self.MODE_VALLEY:
+            # find valleys
+            histPeaks, _ = signal.find_peaks(-hist)
+        else:
+            # find peaks
+            histPeaks, _ = signal.find_peaks(hist)
         histPeaks = list(histPeaks)
 
-        ########### plot peaks ##############
-        """
-        plt.cla()
-        N = 200
-        plt.plot(hist)
-
-        for peak in histPeaks:
-            if peak >= N:
-                plt.axvline(peak, ymin=0, ymax=hist[peak]/max(hist[N:]), c="r")
-
-        plt.xlim([N, 256])
-        plt.ylim([0, max(hist[N:])])
-        plt.pause(0.0001)
-        """
-        ########### plot peaks ##############
-
         if len(histPeaks) > 0:
-            if np.max(img) == 255:
-                self.threshold = 254
-            else:
-                self.threshold = histPeaks.pop()-1
+            #if np.max(img) == 255:
+            #    self.threshold = 254
+            #else:
+            self.threshold = histPeaks.pop()-1
         else:
             self.threshold = np.max(img)-1
 
         ret, imgTemp = cv.threshold(img, self.threshold, upper, self.thresholdType)
         _, contours, hier = cv.findContours(imgTemp, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-        candidates = self._calcCandidates(contours)
+        candidates, removedCandidates = self._calcCandidates(contours)
         
         img = img.copy()
         i = 0
@@ -2080,16 +2081,16 @@ class ModifiedHATS:
             ret, imgTemp = cv.threshold(img, self.threshold, upper, self.thresholdType)
 
             _, contours, hier = cv.findContours(imgTemp, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-            candidates = self._calcCandidates(contours)
+            candidates, removedCandidates = self._calcCandidates(contours)
+
+        if self.peakMargin > 0 and len(histPeaks) > 0:
+            self.threshold = histPeaks.pop()-1
+            ret, imgTemp = cv.threshold(img, self.threshold, upper, self.thresholdType)
+            _, contours, hier = cv.findContours(imgTemp, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+            candidates, removedCandidates = self._calcCandidates(contours)
 
         print("HATS iterations: {}".format(i))
         print("Threshold: {}".format(self.threshold))
-
-        if self.peakMargin > 0 and len(histPeaks) > 0:
-            self.threshold = histPeaks.pop()
-            ret, imgTemp = cv.threshold(img, self.threshold, upper, self.thresholdType)
-            _, contours, hier = cv.findContours(imgTemp, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-            candidates = self._calcCandidates(contours)
 
         self.img = imgTemp
 
@@ -2101,14 +2102,49 @@ class ModifiedHATS:
                 cnt = ls.cnt
                 cx, cy = contourCentroid(cnt)
                 r = contourRatio(cnt)
-                #drawInfo(drawImg, (cx+15,cy-15), str(r))
+                drawInfo(drawImg, (cx+25,cy-15), str(r), fontScale=0.5)
                 cv.drawContours(drawImg, [cnt], 0, (255,0,0), -1)
+
+            for cnt in removedCandidates:
+                r = contourRatio(cnt+offset)
+                cx, cy = contourCentroid(cnt+offset)
+                drawInfo(drawImg, (cx+25,cy-15), str(r), color=(0,0,255), fontScale=0.5)
+                cv.drawContours(drawImg, [cnt+offset], 0, (0,0,255), -1)
+
+        ########### plot peaks ##############
+        if self.showHistogram:
+            plt.cla()
+            N = 200
+            plt.plot(hist)
+
+            for peak in signal.find_peaks(hist)[0]:
+                if peak >= N:
+                    if peak == self.threshold+1:
+                        peakLine = plt.axvline(peak, ymin=0, ymax=1, c="g", label="peaks")
+                    else:   
+                        peakLine = plt.axvline(peak, ymin=0, ymax=hist[peak]/max(hist[N:]), c="g", label="peaks")
+
+            for peak in signal.find_peaks(-hist)[0]:
+                if peak >= N:
+                    if peak == self.threshold+1:
+                        valleyLine = plt.axvline(peak, ymin=0, ymax=1, c="r", label="valleys")
+                    else:   
+                        valleyLine = plt.axvline(peak, ymin=0, ymax=hist[peak]/max(hist[N:]), c="r", label="valleys")
+
+            plt.legend(handles=[peakLine, valleyLine])
+            plt.xlim([N, 256])
+            plt.ylim([0, max(hist[N:])])
+            plt.ylabel("Frequency")
+            plt.xlabel("Intensity")
+            plt.pause(0.0001)
+            
+        ########### plot peaks ##############
 
         return self.img, candidates, roiCnt
 
 
 class AdaptiveThresholdPeak:
-    def __init__(self, nFeatures, kernelSize, p, maxIntensityChange):
+    def __init__(self, nFeatures, kernelSize, p, maxIntensityChange, minArea, minCircleExtent):
         """
         try cv.THRESH_OTSU?
         """
@@ -2118,6 +2154,9 @@ class AdaptiveThresholdPeak:
         self.p = p
         self.img = np.zeros((10, 10), dtype=np.uint8) # store the last processed image
         self.maxIntensityChange = maxIntensityChange
+
+        self.minArea = minArea
+        self.minCircleExtent = minCircleExtent
 
     def __call__(self, *args, **kwargs):
         return self.process(*args, **kwargs)
@@ -2163,24 +2202,28 @@ class AdaptiveThresholdPeak:
         grayOrig = gray.copy() 
 
         (peakDilationImg, 
-            peaksDilationMasked, 
-            peakCenters, 
-            peakContours) = findNPeaks(gray, 
+         peaksDilationMasked, 
+         peakCenters, 
+         peakContours) = findNPeaks(gray, 
                                     kernel=self.kernel, 
                                     p=self.p, 
                                     n=self.nFeatures+maxAdditionalCandidates,
+                                    # maybe this should be (self.kernelSize-1)/2 instead of peakMargin?
+                                    # or maybe it will remove the true candidates in case of weird shapes from "non-peaks"?
                                     margin=peakMargin,
                                     offset=offset,
-                                    drawImg=drawImg)
+                                    drawImg=None)
 
         # TODO: check if offset is correct
         candidates = [LightSource(cnt, grayOrig[pc[1]-offset[1], pc[0]-offset[0]]) for pc, cnt in zip(peakCenters, peakContours)]
         
         """
+        # TODO: This should probably be done
         candidatesNew = []
+        removedCandidates = []
         for ls in candidates:
-            if ls.area > 10 and ls.circleExtent() < 0.2:
-                pass
+            if ls.area > self.minArea and ls.circleExtent() < self.minCircleExtent:
+                removedCandidates.append(ls)
             else:
                 candidatesNew.append(ls)
         candidates = candidatesNew
@@ -2188,10 +2231,15 @@ class AdaptiveThresholdPeak:
 
         candidates = self._sortLightSources(candidates, maxAdditionalCandidates)
 
-        #if drawImg is not None:
-        #    for ls in candidates:
-        #        cv.drawContours(drawImg, [ls.cnt], 0, (255,0,0), -1)
-        #        #cv.circle(drawImg, ls.center, int(round(ls.radius)), (255,0,255), 2)
+        if drawImg is not None:
+            for i, ls in enumerate(candidates):
+                cv.drawContours(drawImg, [ls.cnt], 0, (255,0,0), -1)
+                #drawInfo(drawImg, (ls.center[0]+15, ls.center[1]-15), str(i+1), color=(255,0,0))
+                #cv.circle(drawImg, ls.center, int(round(ls.radius)), (255,0,255), 2)
+
+            #for ls in removedCandidates:
+            #    drawInfo(drawImg, (ls.center[0]+15, ls.center[1]-15), str(ls.area), color=(0,0,255))
+            #    cv.drawContours(drawImg, [ls.cnt], 0, (0,0,255), -1)
 
         self.img = peakDilationImg
 
