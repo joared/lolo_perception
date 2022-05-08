@@ -105,6 +105,7 @@ def NEW_calcPoseReprojectionRMSEThreshold(translationVec, rotationVec, camera, f
         maxReprojErrX = maxReprojectionError((point3D[0], point3D[2]), camera.cameraMatrix[0, 0], deltaE=featureModel.uncertainty)
         maxReprojErrY = maxReprojectionError((point3D[1], point3D[2]), camera.cameraMatrix[1, 1], deltaE=featureModel.uncertainty)
         #reprErrs.append(np.linalg.norm([maxReprojErrX, maxReprojErrY]))
+
         reprErrs.append(max(abs(maxReprojErrX), abs(maxReprojErrY)))
 
     reprErrs = np.array(reprErrs)
@@ -147,6 +148,22 @@ def NEW_calcPoseReprojectionRMSEThreshold(translationVec, rotationVec, camera, f
         cv.waitKey(1)
 
     return maxRMSE
+
+def calcPoseReprojectionThresholds(translationVec, rotationVec, camera, featureModel):
+    rotMat = R.from_rotvec(rotationVec).as_dcm()
+
+    reprErrs = []
+    pointsX = []
+    for fp in featureModel.features:
+        point3D = np.matmul(rotMat, fp.transpose()) + translationVec.transpose()
+        pointsX.append((point3D[0], point3D[2]))
+        
+        maxReprojErrX = maxReprojectionError((point3D[0], point3D[2]), camera.cameraMatrix[0, 0], deltaE=featureModel.uncertainty)
+        maxReprojErrY = maxReprojectionError((point3D[1], point3D[2]), camera.cameraMatrix[1, 1], deltaE=featureModel.uncertainty)
+        reprErrs.append([abs(maxReprojErrX), abs(maxReprojErrY)])
+
+    reprErrs = np.array(reprErrs)
+    return reprErrs
 
 def calcPoseReprojectionRMSEThreshold(translationVec, rotationVec, camera, featureModel, showImg=False):
     rotMat = R.from_rotvec(rotationVec).as_dcm()

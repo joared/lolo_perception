@@ -64,7 +64,7 @@ class PerceptionNode:
         from lolo_perception.camera_model import Camera
         # Using only P (D=0), we should subscribe to the rectified image topic
         camera = Camera(cameraMatrix=np.array(msg.P, dtype=np.float32).reshape((3,4))[:, :3], 
-                        distCoeffs=np.zeros((4,1), dtype=np.float32),
+                        distCoeffs=np.zeros((1,4), dtype=np.float32),
                         resolution=(msg.height, msg.width))
         # Using K and D, we should subscribe to the raw image topic
         #_camera = Camera(cameraMatrix=np.array(msg.K, dtype=np.float32).reshape((3,3)), 
@@ -96,6 +96,8 @@ class PerceptionNode:
             self._cameraPoseMsg = None
         
 
+        start = time.time()
+
         (dsPose,
          poseAquired,
          candidates,
@@ -103,6 +105,31 @@ class PerceptionNode:
          poseImg) = self.perception.estimatePose(imgColor, 
                                                  estDSPose, 
                                                  estCameraPoseVector=cameraPoseVector)
+
+        if dsPose and dsPose.covariance is None:
+            dsPose.calcCovariance()
+
+        elapsed = time.time() - start
+        virtualHZ = 1./elapsed
+        hz = min(self.hz, virtualHZ)
+
+        cv.putText(poseImg, 
+                   "FPS {}".format(round(hz, 1)), 
+                   (int(poseImg.shape[1]*4/5), 25), 
+                   cv.FONT_HERSHEY_SIMPLEX, 
+                   0.7, 
+                   color=(0,255,0), 
+                   thickness=2, 
+                   lineType=cv.LINE_AA)
+
+        cv.putText(poseImg, 
+                   "Virtual FPS {}".format(round(virtualHZ, 1)), 
+                   (int(poseImg.shape[1]*4/5), 45), 
+                   cv.FONT_HERSHEY_SIMPLEX, 
+                   0.7, 
+                   color=(0,255,0), 
+                   thickness=2, 
+                   lineType=cv.LINE_AA)
 
         timeStamp = rospy.Time.now()
         # publish pose if pose has been aquired
@@ -147,7 +174,7 @@ class PerceptionNode:
 
         return dsPose, poseAquired
 
-    def run(self, publishPose=True, publishImages=True):
+    def run(self, poseFeedback=True, publishPose=True, publishImages=True):
         rate = rospy.Rate(self.hz)
 
         # currently estimated docking station pose
@@ -155,14 +182,18 @@ class PerceptionNode:
         # for the feature extraction to consider only a region of interest
         # near the estimated pose
         estDSPose = None
+
         while not rospy.is_shutdown():
+
             if self.imageMsg:
-                tStart = time.time()
                 try:
                     imgColor = self.bridge.imgmsg_to_cv2(self.imageMsg, 'bgr8')
                 except CvBridgeError as e:
                     print(e)
                 else:
+                    if not poseFeedback:
+                        estDSPose = None
+
                     self.imageMsg = None
                     (dsPose,
                      poseAquired) = self.update(imgColor, 
@@ -175,9 +206,7 @@ class PerceptionNode:
                     else:
                         estDSPose = dsPose
 
-                    tElapsed = time.time() - tStart
-                    hz = 1/tElapsed
-                    print("Frame rate: {}".format(hz))
+
 
             rate.sleep()
 
@@ -202,4 +231,4 @@ if __name__ == '__main__':
     featureModel = FeatureModel.fromYaml(featureModelYamlPath)
 
     perception = PerceptionNode(featureModel, hz)
-    perception.run(publishPose=True, publishImages=True)
+    perception.run(poseFeedback=True, publishPose=True, publishImages=True)

@@ -4,6 +4,7 @@ from scipy.spatial.transform import Rotation as R
 
 
 def plotPoseImageInfo(poseImg,
+                      titleText,
                       dsPose,
                       camera,
                       featureModel,
@@ -11,7 +12,18 @@ def plotPoseImageInfo(poseImg,
                       validOrientationRange,
                       roiCnt=None,
                       roiCntUpdated=None,
-                      progress=0):
+                      progress=0,
+                      fixedAxis=False):
+
+
+    cv.putText(poseImg, 
+               titleText, 
+               (int(poseImg.shape[1]/2.5), 45), 
+               cv.FONT_HERSHEY_SIMPLEX, 
+               2, 
+               color=(255,0,255), 
+               thickness=2, 
+               lineType=cv.LINE_AA)
 
     validOrientation = False
     if dsPose:
@@ -39,11 +51,13 @@ def plotPoseImageInfo(poseImg,
 
             cv.putText(poseImg, 
                        "{}/{}".format(dsPose.attempts, dsPose.combinations), 
-                       (roiCntUpdated[1][0]-20, roiCntUpdated[1][1]-10), 
+                       (roiCntUpdated[3][0]-10, roiCntUpdated[3][1]+30), 
                        cv.FONT_HERSHEY_SIMPLEX, 
                        fontScale=1, 
                        thickness=2, 
-                       color=(0,0,255))
+                       color=(255,0,255))
+
+
 
             # mahanalobis distance meter
             mahaDistRatio = dsPose.mahaDist/dsPose.mahaDistThresh
@@ -71,7 +85,38 @@ def plotPoseImageInfo(poseImg,
                     featureModel.features, 
                     featureModel.maxRad, # scaling for the axis shown
                     color=axisColor,
-                    thickness=5) 
+                    thickness=5,
+                    fixedAxis=fixedAxis) 
+            
+            cv.putText(poseImg, 
+                      "RMSE: {} < {}".format(round(dsPose.rmse, 2), round(dsPose.rmseMax, 2)), 
+                      (20, 200), 
+                      cv.FONT_HERSHEY_SIMPLEX, 
+                      .8, 
+                      color=(0,255,0), 
+                      thickness=2, 
+                      lineType=cv.LINE_AA)
+
+            cv.putText(poseImg, 
+                      "RMSE certainty: {}".format(round(1-dsPose.rmse/dsPose.rmseMax, 2)), 
+                      (20, 220), 
+                      cv.FONT_HERSHEY_SIMPLEX, 
+                      .8, 
+                      color=(0,255,0), 
+                      thickness=2, 
+                      lineType=cv.LINE_AA)
+
+            cv.putText(poseImg, 
+                      "Err certainty: {}".format(round(dsPose.reprErrMinCertainty(), 2)), 
+                      (20, 240), 
+                      cv.FONT_HERSHEY_SIMPLEX, 
+                      .8, 
+                      color=(0,255,0), 
+                      thickness=2, 
+                      lineType=cv.LINE_AA)
+
+            
+
     if dsPose:
         """
         # "Cone angle"
@@ -86,7 +131,7 @@ def plotPoseImageInfo(poseImg,
                     thickness=2, 
                     color=(0,0,255))
         """
-
+        plotMaxReprojection(poseImg, dsPose)
         plotPoseInfo(poseImg, 
                     dsPose.translationVector, 
                     dsPose.rotationVector,
@@ -113,8 +158,18 @@ def plotPoseImageInfo(poseImg,
     cv.line(poseImg, (xStart, yStart), (xEnd, yEnd), (255,255,255), 15)
     cv.line(poseImg, (xStart, yStart), (xEnd, int(progress*(yEnd - yStart)) + yStart), (0,255,0), 10)
 
-def plotAxis(img, translationVector, rotationVector, camera, points, scale, color=None, thickness=2, opacity=1):
+def plotMaxReprojection(img, dsPose, color=(0,0,255)):
+    for ls, maxErr in zip(dsPose.associatedLightSources, dsPose.reprErrorsMax):
+        center = ls.center
+        r = int(round(max(maxErr))) # TODO: should be ellipse
+        cv.circle(img, center, r, color, 1)
+
+def plotAxis(img, translationVector, rotationVector, camera, points, scale, color=None, thickness=2, opacity=1, fixedAxis=False):
     points = points[:, :3].copy()
+
+    if fixedAxis:
+        points = R.from_rotvec(rotationVector).apply(points)
+        rotationVector = rotationVector*0
 
     zDir, _ = cv.projectPoints(np.array([(0.0, 0.0, scale)]), 
                                rotationVector, 
@@ -150,6 +205,27 @@ def plotAxis(img, translationVector, rotationVector, camera, points, scale, colo
             cv.line(img, point1, point2, tuple((c*opacity for c in color)), thickness)
         else:
             cv.line(img, point1, point2, c, thickness)
+
+def plotVector(img, vector, translationVector, rotationVector, camera, color=(255,0,0), thickness=2, opacity=1):
+    dir, _ = cv.projectPoints(np.array([vector]), 
+                               rotationVector, 
+                               translationVector, 
+                               camera.cameraMatrix, 
+                               camera.distCoeffs)
+
+    center, _ = cv.projectPoints(np.array([(0.0, 0.0, 0.0)]), 
+                                 rotationVector, 
+                                 translationVector, 
+                                 camera.cameraMatrix, 
+                                 camera.distCoeffs)
+
+
+    center = center[0][0][0], center[0][0][1] 
+    cx = center[0]
+    cy = center[1]
+    point1 = (int(round(cx)), int(round(cy)))
+    point2 = (int(round(dir[0][0][0])), int(round(dir[0][0][1])))
+    cv.line(img, point1, point2, tuple((c*opacity for c in color)), thickness)
 
 def plotPosePoints(img, translationVector, rotationVector, camera, points, color):
     projPoints = projectPoints(translationVector, rotationVector, camera, points)

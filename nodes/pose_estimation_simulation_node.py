@@ -17,7 +17,7 @@ from cv_bridge import CvBridge, CvBridgeError
 from sensor_msgs.msg import Image
 
 from lolo_perception.feature_extraction import LightSource
-from lolo_perception.pose_estimation import DSPoseEstimator, calcPoseCovarianceFixedAxis
+from lolo_perception.pose_estimation import DSPoseEstimator, calcPoseCovarianceFixedAxis, calcPoseCovarianceFixedAxis2, calcPoseReprojectionRMSEThreshold
 from lolo_perception.perception_utils import plotPosePoints, plotPoints, plotAxis, projectPoints, plotPosePointsWithReprojection
 from lolo_perception.perception_ros_utils import vectorToPose, vectorToTransform, featurePointsToMsg
 
@@ -54,22 +54,15 @@ class PoseSimulation:
         img = img.astype(np.uint8)
         cv.imshow("feature model modification", img)
 
-        print("Feature model uncertainty:", featureModel.uncertainty)
-        featureModel.uncertainty = 0.008545
-        featureModel.uncertainty = 0.03
-        print("Feature model uncertainty:", featureModel.uncertainty)
-
         featurePoints = featureModel.features
-        biasedFeaturePoints = featurePoints.copy()
-        biasedFeaturePoints[0][0] += 0.0
-        biasedFeaturePoints[0][1] += 0.0
-        biasedFeaturePoints[0][2] += 0.0
+
+        tempNoisedProjPoints = []
 
         trueTrans = np.array([0, 0, 6], dtype=np.float32)
         trueRotation = np.eye(3, dtype=np.float32)
         ax, ay, az = 0, 0, 0 # euler angles
         featureIdx = -1
-        rate = rospy.Rate(5)
+        rate = rospy.Rate(30)
         while not rospy.is_shutdown():
             
             linInc = 0.1
@@ -115,17 +108,24 @@ class PoseSimulation:
             r = R.from_euler("YXZ", (ay, ax, 0))
             trueRotation = r.as_rotvec().transpose()
 
+            sigma = featureModel.uncertainty/4.0
+            biasedFeaturePoints = featurePoints.copy()
+            
+
             #projPoints = projectPoints(trueTrans, trueRotation, camera, featurePoints)
             biasedProjPoints = projectPoints(trueTrans, trueRotation, camera, biasedFeaturePoints)
+            biasedProjPoints = biasedProjPoints.round().astype(np.int32)
 
-            # Introduce noise:
-            # We systematically displace each feature point 2 standard deviations from its true value
-            # 2 stds (defined by pixelUncertainty) to the left, top, right, and bottom
+            # estimate actual pixel covariance from sigma
+            tempNoisedProjPoints.append(biasedProjPoints[0])
+            tempNoisedProjPoints = tempNoisedProjPoints[-300:]
+
             #noise2D = np.random.normal(0, sigmaX, projPoints.shape)
             projPointsNoised = biasedProjPoints.copy()
-            projPointsNoised[:, 0] += np.random.normal(0, sigmaX, biasedProjPoints[:, 0].shape)
-            projPointsNoised[:, 1] += np.random.normal(0, sigmaY, biasedProjPoints[:, 1].shape)
+            #projPointsNoised[:, 0] += np.random.normal(0, sigmaX, biasedProjPoints[:, 0].shape)
+            #projPointsNoised[:, 1] += np.random.normal(0, sigmaY, biasedProjPoints[:, 1].shape)
             projPointsNoised = projPointsNoised.round().astype(np.int32)
+
             # estimate pose (translation and rotation in camera frame)
             estTranslationVec = trueTrans.copy()
             estRotationVec = trueRotation.copy()
@@ -135,16 +135,27 @@ class PoseSimulation:
 
             # TODO: use something else than max intensity (255)?
             lightSourcesNoised = [ LightSource( np.array([[[ p[0], p[1] ]]], dtype=np.int32), intensity=255 ) for p in projPointsNoised]
+            
             dsPoseNoised = self.poseEstimator.estimatePose(lightSourcesNoised, 
                                                            estTranslationVec,
                                                            estRotationVec)
                                                            #np.array([0., 0, 1]),
                                                            #np.array([0., 0, 0])
-            
+
+
             # calculates covariance based on max reprojection rmse from feature uncertainty
-            dsPoseNoised.calcCovariance()
+            dsPoseNoised.calcCovariance(sigmaScale=2.0)
+            calcPoseReprojectionRMSEThreshold(dsPoseNoised.translationVector, 
+                                              dsPoseNoised.rotationVector, 
+                                              dsPoseNoised.camera, 
+                                              dsPoseNoised.featureModel,
+                                              showImg=True)
+
             trueCovariance = calcPoseCovarianceFixedAxis(camera, featureModel, trueTrans, trueRotation, pixelCovariance)
-         
+            tempCov = calcPoseCovarianceFixedAxis2(camera, featureModel, trueTrans, trueRotation, pixelCovariance)
+
+
+
             timeStamp = rospy.Time.now()
 
             pArray = featurePointsToMsg(self.truePoseTopic, biasedFeaturePoints, timeStamp=timeStamp)
@@ -182,7 +193,35 @@ class PoseSimulation:
             plotPoints(imgTemp, projPointsNoised, color=(255,0,255))
             
             self.imagePublisher.publish(self.cvBridge.cv2_to_imgmsg(imgTemp))
-            print("{} < {}".format(dsPoseNoised.rmse, dsPoseNoised.rmseMax))
+
+            
+        
+            r = R.from_rotvec(trueRotation)
+            point3D = r.apply(featurePoints[0]) + trueTrans
+            fx = camera.cameraMatrix[0, 0]
+            fy = camera.cameraMatrix[1, 1]
+
+            # Covariance estimation 3D -> 2D
+            # https://www.researchgate.net/post/How-do-I-calculate-the-variance-of-the-ratio-of-two-independent-variables
+            
+            rToSome = (dsPoseNoised.rmseMax-1)**2
+            print("rmse_max", rToSome)
+            sigmaU2 = sigma**2*fx**2*(point3D[0]**2 + point3D[2]**2)/point3D[2]**4
+            sigmaV2 = sigma**2*fy**2*(point3D[1]**2 + point3D[2]**2)/point3D[2]**4
+            
+            sigmaU = sigma*fx*np.sqrt(point3D[0]**2 + point3D[2]**2)/point3D[2]**2
+            sigmaV = sigma*fy*np.sqrt(point3D[1]**2 + point3D[2]**2)/point3D[2]**2
+            
+            
+            print("sigma_u_test", ((2*sigmaU)**2 + (2*sigmaV)**2)/2.0)
+            print("Pixel cov:", np.cov(tempNoisedProjPoints, rowvar=False))
+            #print("{} < {}".format(dsPoseNoised.rmse, dsPoseNoised.rmseMax))
+            
+            #print("COVARIANCE")
+            #print(trueCovariance[3, 3], trueCovariance[4, 4], trueCovariance[5, 5])
+            #print(tempCov[3, 3], tempCov[4, 4], tempCov[5, 5])
+            #print(trueCovariance)
+            #print(tempCov)
             cv.imshow("feature model modification", imgTemp)
             rate.sleep()
 
@@ -208,4 +247,4 @@ if __name__ =="__main__":
     camera.distCoeffs *= 0
 
     sim = PoseSimulation(camera, featureModel)
-    sim.test2DNoiseError(sigmaX=2, sigmaY=2)
+    sim.test2DNoiseError(sigmaX=20, sigmaY=20)

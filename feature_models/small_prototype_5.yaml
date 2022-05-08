@@ -5,4 +5,4 @@ features: [[0, 0, -0.043],
            [0.0424254, 0.0424254, 0],
            [-0.0424254, 0.0424254, 0]]
 placement_uncertainty: 0.0012
-detection_tolerance: 0.0006
+detection_tolerance: 0.002

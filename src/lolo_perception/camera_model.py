@@ -28,16 +28,23 @@ class Camera:
                 self.projectionMatrix = self.cameraMatrix
 
         # image_proc is using this to undistort image
-        #cv.initUndistortRectifyMap(	self.cameraMatrix, self.distCoeffs, None, self.newCameraMatrix, size, m1type[, map1[, map2]]	)
-        #cv.remap
+
+        self.mapx, self.mapy = cv.initUndistortRectifyMap(self.cameraMatrix, 
+                                                          self.distCoeffs, 
+                                                          None, #np.eye(3), 
+                                                          self.projectionMatrix, 
+                                                          (self.resolution[1], self.resolution[0]), 
+                                                          m1type=cv.CV_32FC1)
 
 
     def undistortImage(self, img):
         # currently only used in image_analyze_node.py
-        imgRect = cv.undistort(img, self.cameraMatrix, self.distCoeffs, None, self.projectionMatrix)
-        if self.roi is not None:
-            x, y, w, h = self.roi
-            imgRect = imgRect[y:y+h, x:x+w]
+        #imgRect = cv.undistort(img, self.cameraMatrix, self.distCoeffs, None, self.projectionMatrix)
+
+        imgRect = cv.remap(img, self.mapx, self.mapy, interpolation=cv.INTER_LINEAR)
+        #if self.roi is not None:
+        #    x, y, w, h = self.roi
+        #    imgRect = imgRect[y:y+h, x:x+w]
         return imgRect
 
     @staticmethod

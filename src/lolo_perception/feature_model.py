@@ -9,9 +9,9 @@ def polygon(rad, n, shift=False, zShift=0):
     """
     theta = 2*np.pi/n
     if shift is True:
-        points = np.array([ [rad*np.sin(theta*(i + 0.5)), rad*np.cos(theta*(i + 0.5)), zShift, 1] for i in range(n)] , dtype=np.float32)
+        points = np.array([ [rad*np.sin(theta*(i + 0.5)), -rad*np.cos(theta*(i + 0.5)), zShift, 1] for i in range(n)] , dtype=np.float32)
     else:
-        points = np.array([ [rad*np.sin(theta*i), rad*np.cos(theta*i), zShift, 1] for i in range(n)], dtype=np.float32)
+        points = np.array([ [rad*np.sin(theta*i), -rad*np.cos(theta*i), zShift, 1] for i in range(n)], dtype=np.float32)
 
     return points
 
@@ -32,10 +32,14 @@ class FeatureModel:
     DEFAULT_PLACEMENT_UNCERTAINTY_P = 0.01
 
     # default light source detection tolerance percentage (percentage of max radius)
-    DEFAULT_DETECTION_TOLERANCE_P = 0.02
+    DEFAULT_DETECTION_TOLERANCE_P = 0.05
+    
+    # Previous value
+    # DEFAULT_DETECTION_TOLERANCE_P = 0.02
 
     def __init__(self, name, features, placementUncertainty=0, detectionTolerance=0, euler=(0, 0, 0)):
         self.name = name
+        
         self.features = features
         rotMat = R.from_euler("XYZ", euler).as_dcm()
         self.features = np.matmul(rotMat, self.features[:, :3].transpose()).transpose()
@@ -64,9 +68,20 @@ class FeatureModel:
     def fromYaml(yamlPath):
         with open(yamlPath, "r") as file:
             featureModelData = yaml.load(file)
-        
+
+        features = featureModelData["features"]
+        if features[0] == "polygon":
+            rad, n, shift = features[1:]
+            rad = float(rad)
+            n = int(n)
+            shift = bool(shift)
+            features = polygon(rad, n, shift)
+        else:
+            features = np.array(featureModelData["features"], dtype=np.float32)
+
+
         return FeatureModel(featureModelData["model_name"],
-                            np.array(featureModelData["features"], dtype=np.float32),
+                            features,
                             featureModelData["placement_uncertainty"],
                             featureModelData["detection_tolerance"])
 
@@ -90,6 +105,10 @@ if __name__ == "__main__":
     fig = plt.figure()
     ax = fig.gca(projection='3d')
     ax.scatter(*zip(*fm.features))
+
+    for i, fp in enumerate(fm.features):
+        ax.text(fp[0], fp[1], fp[2], str(i), [1, 0, 0])
+
 
     l = fm.maxRad
     ax.plot([0, l], [0, 0], [0, 0], color="r")

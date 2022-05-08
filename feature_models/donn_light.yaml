@@ -1,0 +1,5 @@
+model_name: donn_light
+features: ["polygon", 0.5, 8, 1] # [..., rad, n, shift]
+placement_uncertainty: 0 # default uncertainty will be used if 0 (check feature_model/FeatureModel)
+detection_tolerance: 0.1 #0.09 # default uncertainty will be used if 0 (check feature_model/FeatureModel)
+

@@ -11,10 +11,18 @@ from lolo_perception.perception_utils import projectPoints, reprojectionError
 from lolo_perception.feature_extraction import featureAssociation
 
 
-from lolo_perception.reprojection_utils import calcPoseReprojectionRMSEThreshold
+from lolo_perception.reprojection_utils import calcPoseReprojectionRMSEThreshold, calcPoseReprojectionThresholds
+from lolo_perception.pose_estimation_utils import lmSolve
 
 from numpy.linalg import lapack_lite
 #lapack_routine = lapack_lite.dgesv
+####### Levenberg #################
+
+            
+
+
+#######\ Levenberg #################
+
 
 def calcMahalanobisDist(estDSPose, dsPose, SInv=None):
     if SInv is None:
@@ -92,6 +100,76 @@ def calcPoseCovarianceFixedAxis(camera, featureModel, translationVector, rotatio
 
     return covariance
 
+def calcPoseCovarianceFixedAxis2(camera, featureModel, translationVector, rotationVector, pixelCovariance):
+
+    _, jacobian = cv.projectPoints(featureModel.features, 
+                                   rotationVector.reshape((3, 1)), 
+                                   translationVector.reshape((3, 1)), 
+                                   camera.cameraMatrix, 
+                                   camera.distCoeffs)
+    #jacobian - 2*nPoints * 14
+    # jacobian - [rotation, translation, focal lengths, principal point, dist coeffs]
+
+    rotJ = jacobian[:, :3]
+    transJ = jacobian[:, 3:6]
+
+    J = np.hstack((transJ, rotJ)) # reorder covariance as used in PoseWithCovarianceStamped
+
+    # How to rotate covariance: https://robotics.stackexchange.com/questions/2556/how-to-rotate-covariance
+
+    sigma = scipy.linalg.block_diag(*[pixelCovariance]*len(featureModel.features))
+
+    sigmaInv = np.linalg.inv(sigma)
+    #sigmaInv = fastInverse(np.reshape(sigma, (sigma.shape[0], sigma.shape[1], 1))).reshape(sigma.shape)
+    try:
+        mult = np.matmul(np.matmul(J.transpose(), sigmaInv), J)
+        covariance = np.linalg.inv(mult)
+        #covariance = fastInverse(np.reshape(mult, (mult.shape[0], mult.shape[1], 1))).reshape(mult.shape)
+    except np.linalg.LinAlgError as e:
+        print("Singular matrix")
+
+    # Convert to euler fixed axis x,y,z (same as local axis ZYX)
+    # https://ethz.ch/content/dam/ethz/special-interest/mavt/robotics-n-intelligent-systems/rsl-dam/documents/RobotDynamics2016/RD2016script.pdf
+    az, ay, ax = R.from_rotvec(rotationVector).as_euler("zyx")
+
+    sz = np.sin(az)
+    cz = np.cos(az)
+    sy = np.sin(ay)
+    cy = np.cos(ay)
+
+    # maps rotation vector -> az, ay, ax
+    #mat = np.array([[cz*sy/cy, sy*sz/cy, 1],
+    #                [     -sz,       cz, 0],
+    #                [   cz/cy,    sz/cy, 0]])
+
+    rotMat = np.array([[   cz/cy,    sz/cy, 0],
+                       [     -sz,       cz, 0],
+                       [cz*sy/cy, sy*sz/cy, 1]])
+
+    rotMatInv = np.linalg.inv(rotMat)
+
+    # maps rotation vector -> ax, ay, az
+    mat = np.array([[1, 0, 0, 0, 0, 0],
+                    [0, 1, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0],
+                    [0, 0, 0, rotMat[0,0], rotMat[0,1], rotMat[0,2]],
+                    [0, 0, 0, rotMat[1,0], rotMat[1,1], rotMat[1,2]],
+                    [0, 0, 0, rotMat[2,0], rotMat[2,1], rotMat[2,2]]])
+
+    matInv = np.array([[1, 0, 0, 0, 0, 0],
+                    [0, 1, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0],
+                    [0, 0, 0, rotMatInv[0,0], rotMatInv[0,1], rotMatInv[0,2]],
+                    [0, 0, 0, rotMatInv[1,0], rotMatInv[1,1], rotMatInv[1,2]],
+                    [0, 0, 0, rotMatInv[2,0], rotMatInv[2,1], rotMatInv[2,2]]])
+
+    mat = mat
+    matInv = np.linalg.inv(mat)
+
+    covariance = np.matmul(np.matmul(mat, covariance), matInv)
+    print("HEJEJEJJE")
+    return covariance
+
 def calcPoseCovariance(camera, featureModel, translationVector, rotationVector, pixelCovariance):
     _, jacobian = cv.projectPoints(featureModel.features, 
                                    rotationVector.reshape((3, 1)), 
@@ -144,6 +222,8 @@ class DSPose:
         self.camera = camera
         self.featureModel = featureModel
 
+        self.reprErrors = None
+        self.reprErrorsMax = None
         self._rmse = None
         self._rmseMax = None
 
@@ -198,6 +278,24 @@ class DSPose:
                              self.camera, 
                              self.featureModel.features)
 
+    def reprErrMinCertainty(self):
+        if self.reprErrors is None or self.reprErrorsMax is None:
+            self.calcRMSE()
+
+        diffs = self.reprErrorsMax - abs(self.reprErrors)
+        certainties = diffs / self.reprErrorsMax
+        certainty = np.min(certainties)
+        return certainty
+
+    def validReprError(self):
+        if self.reprErrors is None or self.reprErrorsMax is None:
+            self.calcRMSE()
+
+        for err, errMax in zip(self.reprErrors, self.reprErrorsMax):
+            if abs(err[0]) > errMax[0] or abs(err[1]) > errMax[1]:
+                return False
+        return True
+
     def calcRMSE(self, showImg=False):
         if self._rmse:
             return self._rmse
@@ -208,13 +306,25 @@ class DSPose:
                                        self.camera, 
                                        self.featureModel.features, 
                                        np.array([ls.center for ls in self.associatedLightSources], dtype=np.float32))
-        rmseMaxModel = calcPoseReprojectionRMSEThreshold(self.translationVector, 
-                                                         self.rotationVector, 
-                                                         self.camera, 
-                                                         self.featureModel,
-                                                         showImg=showImg)
 
-        lightSourceReprojections = np.array([ls.radius for ls in self.associatedLightSources], dtype=np.float32)
+        reprThresholds = calcPoseReprojectionThresholds(self.translationVector, 
+                                                        self.rotationVector, 
+                                                        self.camera, 
+                                                        self.featureModel)
+        # Minimum absolute reprojection error is 1
+        reprThresholds[reprThresholds < 1] = 1
+
+        rmseMaxModel = np.sqrt(np.sum(reprThresholds**2)/np.product(reprThresholds.shape))
+
+        #rmseMaxModel = calcPoseReprojectionRMSEThreshold(self.translationVector, 
+        #                                                 self.rotationVector, 
+        #                                                 self.camera, 
+        #                                                 self.featureModel,
+        #                                                 showImg=showImg)
+
+        self.reprErrorsMax = reprThresholds
+        self.reprErrors = errs
+        #lightSourceReprojections = np.array([ls.radius for ls in self.associatedLightSources], dtype=np.float32)
         #rmseMaxLightsource = np.sqrt(np.sum(lightSourceReprojections**2)/len(self.associatedLightSources))
 
         self._rmse = rmse
@@ -269,6 +379,7 @@ class DSPoseEstimator:
                  featureModel,
                  ignoreRoll=False, 
                  ignorePitch=False, 
+                 initFlag=cv.SOLVEPNP_EPNP,
                  flag=cv.SOLVEPNP_ITERATIVE):
 
         self.camera = camera
@@ -278,6 +389,7 @@ class DSPoseEstimator:
         self.ignoreRoll = ignoreRoll
         self.ignorePitch = ignorePitch
         
+        self.initFlag = initFlag
         self.flag = flag
 
     def estimatePose(self, 
@@ -291,38 +403,79 @@ class DSPoseEstimator:
         """
         associatedPoints = np.array([ls.center for ls in associatedLightSources], dtype=np.float32)
 
-        if self.flag == cv.SOLVEPNP_EPNP:
-            associatedPoints = associatedPoints.reshape((len(associatedPoints), 1, 2))
-
         featurePoints = np.array(list(self.featureModel.features[:, :3]))
+
+
         if estTranslationVec is not None:
-            guessTrans = estTranslationVec.copy().reshape((3, 1))
-            guessRot = estRotationVec.copy().reshape((3, 1))
-            # On axis-angle: https://en.wikipedia.org/wiki/Axis%E2%80%93angle_representation#Relationship_to_other_representations
-            success, rotationVector, translationVector = cv.solvePnP(featurePoints,
-                                                                    associatedPoints,
-                                                                    self.camera.cameraMatrix,
-                                                                    self.camera.distCoeffs,
-                                                                    useExtrinsicGuess=True,
-                                                                    tvec=guessTrans,
-                                                                    rvec=guessRot,
-                                                                    flags=cv.SOLVEPNP_ITERATIVE)
+            if self.flag == "custom":
+                success = True
+                pose = lmSolve(self.camera.cameraMatrix, 
+                                associatedPoints, 
+                                featurePoints, 
+                                tVec=estTranslationVec, 
+                                rVec=estRotationVec, 
+                                jacobianCalc="global",
+                                maxIter=50,
+                                mode="lm",
+                                generate=False,
+                                verbose=0).next()[0]
+                translationVector, rotationVector = np.reshape(pose[:3], (3,1)), np.reshape(pose[3:], (3,1))
+            
+            else:
+                if self.flag == cv.SOLVEPNP_EPNP:
+                    associatedPoints = associatedPoints.reshape((len(associatedPoints), 1, 2))
+
+                guessTrans = estTranslationVec.copy().reshape((3, 1))
+                guessRot = estRotationVec.copy().reshape((3, 1))
+                # On axis-angle: https://en.wikipedia.org/wiki/Axis%E2%80%93angle_representation#Relationship_to_other_representations
+                success, rotationVector, translationVector = cv.solvePnP(featurePoints,
+                                                                        associatedPoints,
+                                                                        self.camera.cameraMatrix,
+                                                                        self.camera.distCoeffs,
+                                                                        useExtrinsicGuess=True,
+                                                                        tvec=guessTrans,
+                                                                        rvec=guessRot,
+                                                                        flags=self.flag)
         else:
-            guessTrans = np.array([[0.], [0.], [5]])
-            #print("Guess trans", guessTrans)
-            guessRot = np.array([[0.], [0.], [0.]])
-            # On axis-angle: https://en.wikipedia.org/wiki/Axis%E2%80%93angle_representation#Relationship_to_other_representations
-            success, rotationVector, translationVector = cv.solvePnP(featurePoints,
-                                                                    associatedPoints,
-                                                                    self.camera.cameraMatrix,
-                                                                    self.camera.distCoeffs,
-                                                                    useExtrinsicGuess=True,
-                                                                    tvec=guessTrans,
-                                                                    rvec=guessRot,
-                                                                    flags=self.flag)
+            #xGuess, yGuess = np.mean(associatedPoints, axis=0)
+            #guessTrans = np.array([xGuess, yGuess, 5.]) # This does not work well for planar config at close ranges
+            guessTrans = np.array([0., 0., 1.])
+            guessRot = np.array([0., 0., 0.])
+            #if xGuess > 0:
+            #    guessRot = np.array([0., -0.5, 0.])
+            #else:
+            #    guessRot = np.array([0., 0.5, 0.])
+
+            if self.initFlag == "custom":
+                success = True
+                pose = lmSolve(self.camera.cameraMatrix, 
+                                associatedPoints, 
+                                featurePoints, 
+                                tVec=guessTrans, 
+                                rVec=guessRot, 
+                                jacobianCalc="global",
+                                maxIter=50,
+                                mode="lm",
+                                generate=False,
+                                verbose=0).next()[0]
+
+                translationVector, rotationVector = np.reshape(pose[:3], (3,1)), np.reshape(pose[3:], (3,1))
+            else:
+                if self.initFlag == cv.SOLVEPNP_EPNP:
+                    associatedPoints = associatedPoints.reshape((len(associatedPoints), 1, 2))
+
+                # On axis-angle: https://en.wikipedia.org/wiki/Axis%E2%80%93angle_representation#Relationship_to_other_representations
+                success, rotationVector, translationVector = cv.solvePnP(featurePoints,
+                                                                        associatedPoints,
+                                                                        self.camera.cameraMatrix,
+                                                                        self.camera.distCoeffs,
+                                                                        useExtrinsicGuess=True,
+                                                                        tvec=guessTrans.reshape((3,1)),
+                                                                        rvec=guessRot.reshape((3,1)),
+                                                                        flags=self.initFlag)
                                                                  
         if not success:
-            print("Pose estimation failed")
+            print("Pose estimation failed, no solution")
             return 
 
         translationVector = translationVector[:, 0]
@@ -380,12 +533,12 @@ class DSPoseEstimator:
             else:
                 validMahaDist = True
 
-            validRMSE = dsPose.rmse < dsPose.rmseMax
-            valid = validRMSE and validMahaDist
+            validReprError = dsPose.validReprError()
+            valid = validReprError and validMahaDist
 
             if firstValid:
                 # TODO: Temporary, remove
-                if validRMSE and not validMahaDist:
+                if validReprError and not validMahaDist:
                     print("Maha dist outlier")
 
                 if valid:
@@ -406,4 +559,125 @@ class DSPoseEstimator:
             return bestPose
 
 if __name__ =="__main__":
-    pass
+    from lolo_simulation.coordinate_system import CoordinateSystemArtist, CoordinateSystem
+    from lolo_perception.perception_utils import plotAxis
+    class CameraDummy:
+        def __init__(self, cameraMatrix):
+            self.cameraMatrix = cameraMatrix
+            self.distCoeffs = np.zeros((1,4), dtype=np.float32)
+
+    # Square
+    objectPoints = np.array([[1., 1., 0], [-1., 1., 0], [1., -1., 0], [-1., -1., 0]])
+    # 5 Lights
+    #objectPoints = np.array([[1., 1., 0], [-1., 1., 0], [1., -1., 0], [-1., -1., 0], [0., 0., -1.0]])
+    
+    # Difficult pose
+    tVec = np.array([-5., -5., 25.])
+    rVec = R.from_euler("YXZ", (np.deg2rad(-110), np.deg2rad(90), np.deg2rad(90))).as_rotvec()
+    
+    # Random pose
+    tVec = np.array([-5., -5., 25.])
+    rVec = R.from_euler("YXZ", (np.deg2rad(-90), np.deg2rad(45), np.deg2rad(45))).as_rotvec()
+    
+    print(np.concatenate((tVec, rVec)).round(2))
+    #rVec = np.array([0, np.pi, 0])
+    cameraMatrix = np.array([[1400., 0., 639.],
+                             [0., 1400., 359.],
+                             [0., 0., 1]])
+
+    detectedPoints = projectPoints2(tVec, rVec, cameraMatrix, objectPoints)
+    sigmaX = 0
+    sigmaY = 0
+    detectedPoints[:, 0] += np.random.normal(0, sigmaX, detectedPoints[:, 0].shape)
+    detectedPoints[:, 1] += np.random.normal(0, sigmaY, detectedPoints[:, 1].shape)
+
+    camCS = CoordinateSystemArtist(CoordinateSystem(translation=(tVec[2]/2, 0, tVec[2]/2), euler=(-np.pi/2, 0, 0)))
+    trueCS = CoordinateSystemArtist(CoordinateSystem(translation=tVec, euler=R.from_rotvec(rVec).as_euler("XYZ")))
+    estCS = CoordinateSystemArtist()
+    fig = plt.figure()
+    ax = fig.gca(projection='3d')
+    ax.set_xlim(0, tVec[2])
+    ax.set_ylim(0, tVec[2])
+    ax.set_zlim(0, tVec[2])
+    camCS.draw(ax, colors=("b",)*3)
+    trueCS.drawRelative(ax, camCS.cs, colors=("g",)*3)
+    
+    fig2 = plt.figure()
+    ax2 = fig2.gca()
+
+    img = np.zeros((720, 1280, 3))
+    for pose, lambdas, grads, errors in lmSolve(cameraMatrix, 
+                                                detectedPoints, 
+                                                objectPoints, 
+                                                np.array([0., 0., 2.]), 
+                                                np.array([0.0, 0., 0.]), 
+                                                "opencv",
+                                                maxIter=200,
+                                                mode="lm",
+                                                generate=True,
+                                                verbose=1):
+
+        for imgP in detectedPoints:
+            imgP = imgP.round().astype(np.int32)
+            cv.circle(img, tuple(imgP), 3, (255,0,0), -1)
+        plotAxis(img, tVec, rVec, CameraDummy(cameraMatrix), objectPoints, scale=1)
+
+        projPoints = projectPoints2(pose[:3], pose[3:], cameraMatrix, objectPoints)
+        for p in projPoints:
+            p = p.round().astype(np.int32)
+            cv.circle(img, tuple(p), 3, (255,0,255), -1)
+        plotAxis(img, pose[:3], pose[3:], CameraDummy(cameraMatrix), objectPoints, scale=1, opacity=0.002)
+
+        ax2.cla()
+        ax2.plot(errors)
+        ax2.plot(lambdas)
+        ax2.plot(grads)
+        ax2.legend(["F(x)", "mu", "||g||"])
+
+        estCS.cs.translation = pose[:3]
+        estCS.cs.rotation = R.from_rotvec(pose[3:]).as_dcm()
+        estCS.drawRelative(ax, camCS.cs, colors=("r",)*3, scale=0.5, alpha=0.5)
+
+        print(pose.round(2))
+        cv.imshow("img", img)
+        cv.waitKey(10)
+        plt.pause(0.01)
+        img *= 0
+
+    N = 100
+    for mode in ("opencvTrue", "opencv", "global", "local"):
+        start = time.time()
+        for j in range(N):
+            if mode == "opencvTrue":
+                success, rotationVector, translationVector = cv.solvePnP(objectPoints,
+                                                                    detectedPoints,
+                                                                    cameraMatrix,
+                                                                    np.zeros((1,4), dtype=np.float32),
+                                                                    useExtrinsicGuess=True,
+                                                                    tvec=np.array([0., 0., 2.]).reshape((3,1)),
+                                                                    rvec=np.array([0.0, 0., 0.]).reshape((3,1)),
+                                                                    flags=cv.SOLVEPNP_ITERATIVE)
+                pose = np.array(list(translationVector) + list(rotationVector))
+            else:
+                pose, lambdas, grads, errors in lmSolve(cameraMatrix, 
+                                                    detectedPoints, 
+                                                    objectPoints, 
+                                                    np.array([0., 0., 2.]), 
+                                                    np.array([0.0, 0., 0.]), 
+                                                    mode,
+                                                    maxIter=200,
+                                                    mode="lm",
+                                                    generate=False,
+                                                    verbose=0)
+
+        elapsed = time.time()-start
+        avg = elapsed/N
+        print("{}: {}".format(mode, round(avg, 5)))
+        print(pose)
+
+    while True:
+        plt.pause(0.01)
+        key = cv.waitKey(10)
+        if key == ord("q"):
+            break
+    cv.destroyAllWindows()
