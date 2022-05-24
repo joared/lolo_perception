@@ -17,7 +17,7 @@ from cv_bridge import CvBridge, CvBridgeError
 from sensor_msgs.msg import Image
 
 from lolo_perception.feature_extraction import LightSource
-from lolo_perception.pose_estimation import DSPoseEstimator, calcPoseCovarianceFixedAxis, calcPoseCovarianceFixedAxis2, calcPoseReprojectionRMSEThreshold
+from lolo_perception.pose_estimation import DSPoseEstimator, calcPoseCovarianceFixedAxis, calcPoseReprojectionRMSEThreshold
 from lolo_perception.perception_utils import plotPosePoints, plotPoints, plotAxis, projectPoints, plotPosePointsWithReprojection
 from lolo_perception.perception_ros_utils import vectorToPose, vectorToTransform, featurePointsToMsg
 
@@ -32,10 +32,15 @@ class PoseSimulation:
         self.trueLightsTopic = 'docking_station_true/lights'
         self.noisedPoseTopic = 'docking_station_noised/pose'
         self.noisedLightsTopic = 'docking_station_noised/lights'
+        self.camNoisedPoseTopic = 'lolo_camera/estimated_pose'
         self.posePublisher = rospy.Publisher(self.truePoseTopic, PoseWithCovarianceStamped, queue_size=1)
         self.featurePosesPublisher = rospy.Publisher(self.trueLightsTopic, PoseArray, queue_size=1)
         self.poseNoisedPublisher = rospy.Publisher(self.noisedPoseTopic, PoseWithCovarianceStamped, queue_size=1)
+
         self.featurePosesNoisedPublisher = rospy.Publisher(self.noisedLightsTopic, PoseArray, queue_size=1)
+
+        self.camPoseNoisedPublisher = rospy.Publisher(self.camNoisedPoseTopic, PoseWithCovarianceStamped, queue_size=1)
+        
 
         self.poseEstimator = DSPoseEstimator(camera, featureModel, ignorePitch=False, ignoreRoll=False)
 
@@ -66,7 +71,7 @@ class PoseSimulation:
         while not rospy.is_shutdown():
             
             linInc = 0.1
-            angInc = 0.1
+            angInc = np.pi/30
             key = cv.waitKey(1)
             
             if key == ord('w'):
@@ -86,6 +91,10 @@ class PoseSimulation:
                 ay += angInc
             elif key == ord("j"):
                 ay -= angInc
+            elif key == ord("u"):
+                az -= angInc
+            elif key == ord("o"):
+                az += angInc
             elif key == ord("n"):
                 rotMat = R.from_euler("XYZ", (0, 0, -angInc)).as_dcm()
                 if featureIdx == -1:
@@ -105,7 +114,7 @@ class PoseSimulation:
                     featureIdx = -1
                     print(chr(key))
 
-            r = R.from_euler("YXZ", (ay, ax, 0))
+            r = R.from_euler("YXZ", (ay, ax, az))
             trueRotation = r.as_rotvec().transpose()
 
             sigma = featureModel.uncertainty/4.0
@@ -145,15 +154,14 @@ class PoseSimulation:
 
             # calculates covariance based on max reprojection rmse from feature uncertainty
             dsPoseNoised.calcCovariance(sigmaScale=2.0)
+
             calcPoseReprojectionRMSEThreshold(dsPoseNoised.translationVector, 
                                               dsPoseNoised.rotationVector, 
                                               dsPoseNoised.camera, 
                                               dsPoseNoised.featureModel,
-                                              showImg=True)
+                                              showImg=False)
 
             trueCovariance = calcPoseCovarianceFixedAxis(camera, featureModel, trueTrans, trueRotation, pixelCovariance)
-            tempCov = calcPoseCovarianceFixedAxis2(camera, featureModel, trueTrans, trueRotation, pixelCovariance)
-
 
 
             timeStamp = rospy.Time.now()
@@ -178,6 +186,7 @@ class PoseSimulation:
 
             self.posePublisher.publish( vectorToPose("camera1", trueTrans, trueRotation, trueCovariance, timeStamp=timeStamp) )
             self.poseNoisedPublisher.publish( vectorToPose("camera2", dsPoseNoised.translationVector, dsPoseNoised.rotationVector, dsPoseNoised.covariance, timeStamp=timeStamp) )
+            self.camPoseNoisedPublisher.publish(vectorToPose("camera2", [0.]*3, [0.]*3, dsPoseNoised.calcCamPoseCovariance(), timeStamp=timeStamp))
 
             imgTemp = img.copy()
             # true axis
@@ -247,4 +256,4 @@ if __name__ =="__main__":
     camera.distCoeffs *= 0
 
     sim = PoseSimulation(camera, featureModel)
-    sim.test2DNoiseError(sigmaX=20, sigmaY=20)
+    sim.test2DNoiseError(sigmaX=3, sigmaY=3)

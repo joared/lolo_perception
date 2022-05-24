@@ -19,8 +19,8 @@ if __name__ == "__main__":
     tVec = np.array([1., -1., 5.])
     rVec = np.array([0.1, np.pi/3, -0.3])
 
-    tVec = np.array([0., 0., 10.])*0.5
-    rVec = np.array([0, 0, 0.])
+    #tVec = np.array([0., 0., 10.])*0.5
+    #rVec = np.array([0, 0, 0.])
 
     #rVec = np.array([0.1, 0, -0.3])
     #rVec = np.array([0, np.pi, 0])

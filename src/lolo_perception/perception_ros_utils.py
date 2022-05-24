@@ -2,7 +2,7 @@
 import numpy as np
 import rospy
 from scipy.spatial.transform import Rotation as R
-from geometry_msgs.msg import PoseWithCovarianceStamped, PoseArray, Pose, Quaternion, TransformStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped, PoseArray, Pose, Quaternion, TransformStamped
 from sensor_msgs.msg import CameraInfo
 from tf.transformations import quaternion_from_matrix
 import yaml
@@ -25,6 +25,24 @@ def vectorToPose(frameID, translationVector, rotationVector, covariance, timeSta
                                 translationVector[2])
     p.pose.pose.orientation = Quaternion(*q)
     p.pose.covariance = list(np.ravel(covariance))
+
+    return p
+
+def vectorToPoseStamped(frameID, translationVector, rotationVector, timeStamp=None):
+    rotMat = R.from_rotvec(rotationVector).as_dcm()
+    rotMatHom = np.hstack((rotMat, np.zeros((3, 1))))
+    rotMatHom = np.vstack((rotMatHom, np.array([0, 0, 0, 1])))
+    q = quaternion_from_matrix(rotMatHom)
+
+    p = PoseStamped()
+    p.header.frame_id = frameID
+    p.header.stamp = timeStamp if timeStamp else rospy.Time.now()
+    (p.pose.position.x, 
+     p.pose.position.y, 
+     p.pose.position.z) = (translationVector[0], 
+                                translationVector[1], 
+                                translationVector[2])
+    p.pose.orientation = Quaternion(*q)
 
     return p
 

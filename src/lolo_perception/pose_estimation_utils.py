@@ -338,14 +338,15 @@ def numericalJacobian(cameraMatrix, tVec, rVec, objectPoints, method="rvec", jac
 
     return J
 
-def plot3DEllipse(ax, A, center):
+def plot3DEllipse(ax, A, center, confidence=7.815):
     # https://localcoder.org/plotting-ellipsoid-with-matplotlib
 
     
 
     # find the rotation matrix and radii of the axes
     U, s, rotation = linalg.svd(A)
-    radii = 1.0/np.sqrt(s)
+    radii = 1.0/np.sqrt(s)*np.sqrt(confidence)
+
     print(radii)
     #radii = (1, 1, 1)
 
@@ -517,6 +518,9 @@ def lmSolve(cameraMatrix, detectedPoints, objectPoints, tVec, rVec, jacobianCalc
     if not generate:
         yield x, lambdas, grads, errors
 
+
+def RPnP(cameraMatrix, detectedPoints, objectPoints, tVec, rVec):
+    pointsNorm = detectedPoints[:, :2]/detectedPoints[:, 2]
 
 if __name__ == "__main__":
     A = np.array([[2.020e-09, -3.756e-09, -4.912e-08 ],

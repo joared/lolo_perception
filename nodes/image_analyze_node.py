@@ -18,9 +18,10 @@ from geometry_msgs.msg import PoseArray
 from lolo_perception.camera_model import Camera
 from lolo_perception.perception_ros_utils import readCameraYaml, msgToImagePoints
 from lolo_perception.feature_extraction import MeanShiftTracker, LightSourceTracker, RCFS, RCF, findPeakContourAt, circularKernel, LightSourceTrackInitializer, localMax
+from lolo_perception.perception_utils import plotHistogram, imageROI, regionOfInterest
 
 # for _analyzeImage
-from lolo_perception.feature_extraction import regionOfInterest, peakThresholdMin, LoG, contourCentroid, findNPeaks, AdaptiveThresholdPeak, GradientFeatureExtractor, findAllPeaks, findPeaksDilation, peakThreshold, AdaptiveThreshold2, circularKernel, removeNeighbouringContours, removeNeighbouringContoursFromImg, AdaptiveOpen, maxShift, meanShift, drawInfo, medianContourAreaFromImg, findMaxPeaks, findMaxPeak
+from lolo_perception.feature_extraction import ModifiedHATS, findNPeaks2, peakThresholdMin, LoG, contourCentroid, AdaptiveThresholdPeak, GradientFeatureExtractor, findAllPeaks, findPeaksDilation, peakThreshold, AdaptiveThreshold2, circularKernel, removeNeighbouringContours, removeNeighbouringContoursFromImg, AdaptiveOpen, maxShift, meanShift, drawInfo, medianContourAreaFromImg, findMaxPeaks, findMaxPeak
 
 import scipy
 import scipy.ndimage as ndimage
@@ -31,7 +32,7 @@ def drawErrorCircle(img, errCircle, i, color, font=cv.FONT_HERSHEY_SIMPLEX, font
     d = int(1/np.sqrt(2)*r) + delta
     org = (x+d, y+d) # some displacement to make it look good
     cv.putText(img, str(i), org, font, fontScale, color, thickness, cv.LINE_AA)
-    cv.circle(img, (x,y), 1, color, 2)
+    cv.circle(img, (x,y), 0, color, 1)
     cv.circle(img, (x,y), r, color, 1)
 
 class ImageLabeler:
@@ -568,468 +569,49 @@ class ImageAnalyzeNode:
     def _analyzeImage(self, imgRect, nFeatures, mask=None):
         kernel = circularKernel(11)
         gray = cv.cvtColor(imgRect, cv.COLOR_BGR2GRAY)
+        img = imgRect.copy()
+        g = GradientFeatureExtractor(None, 1337, 3)
+        cv.imshow("gray", cv.resize(gray, (1280,720)))
+        gradImg = g(gray)
 
-        #Y = 0.299R+0.587G+0.114B
-        R = 0.299
-        G = 0.114
-        B = 0.587
-        coefficients = [B,G,R] # Gives blue channel all the weight
-        # for standard gray conversion, coefficients = [0.114, 0.587, 0.299]
-        m = np.array(coefficients).reshape((1,3))
-        grayCustom = cv.transform(imgRect, m)
+        cv.imshow("grad image", gradImg)
+        #blurred = cv.GaussianBlur(gray, (5,5), 0)
+        localMaxImg = localMax(gray, circularKernel(1))
 
-        cv.imshow("gray custom", grayCustom)
-        cv.imshow("gray", gray)
-        localPeaks = peakThresholdMin(gray, kernel, p=0.975)
-        #log = LoG(nFeatures=8, kernelSize=25)
-        #log.process(gray)
-        #_,otsu = cv.threshold(log.img,0,255,cv.THRESH_BINARY+cv.THRESH_OTSU)
-        #_,otsu = cv.threshold(gray,0,255,cv.THRESH_BINARY+cv.THRESH_OTSU)
-        cv.imshow("peaks", localPeaks)
-        cv.imshow("locamax", localMax(gray, kernel))
-        
-        return localPeaks
-        g = GradientFeatureExtractor(None, 5, kernelSize=5)
-        gradImg = g(gray)        
-        locMax2 = localMax(gray, circularKernel(25))
-        blurredGrad = cv.blur(gradImg, (11,11))
+        cv.imshow("local max", localMaxImg)
+        _, localMaxThresholded = cv.threshold(localMaxImg, self.analyzeThreshold, 256, cv.THRESH_BINARY)
+        cv.imshow("local max thresholded", localMaxThresholded)
 
-        hybrid = np.multiply(blurredGrad, locMax2)
-        print(hybrid.max())
-        cv.imshow("grad", cv.resize(gradImg, (1280,720)))
-        cv.imshow("local max 25", cv.resize(locMax2, (1280,720)))
-        cv.imshow("blurred grad", cv.resize(blurredGrad, (1280,720)))
-
-        cv.imshow("hybrid", cv.resize(hybrid, (1280,720)))
-        return imgRect
-        ret, thresholded = cv.threshold(analyzeImg, self.analyzeThreshold, 256, cv.THRESH_BINARY)
-        cv.imshow("analyzed image thresholded", cv.resize(thresholded, imgSize))
-        
-        kernel = circularKernel(11)
-        img = localMax(gray, kernel)
+        _, grayThreholded = cv.threshold(gray, self.analyzeThreshold, 256, cv.THRESH_BINARY)
+        cv.imshow("thresholded", grayThreholded)
+        #imgROI = imageROI(img, margin=80)
+        #plotHistogram(imgRect, )
         return img
-        
+
+        """
+        #peakFeatureExtractor = AdaptiveThresholdPeak(8, 11, 0.975, 0.975, 0.7, 200, 0.0001, 5, maxIter=20)
+        hats = ModifiedHATS(8, 
+                            peakMargin=0, # this should be zero
+                            minArea=20, 
+                            minRatio=0.2, # might not be good for outlier detection, convex hull instead?
+                            maxIntensityChange=0.7,
+                            blurKernelSize=5,
+                            thresholdType=cv.THRESH_BINARY,
+                            mode=ModifiedHATS.MODE_VALLEY,
+                            showHistogram=False)
         drawImg = imgRect.copy()
-        (peaksDilation, 
-         peaksDilationMasked, 
-         peakCenters, 
-         peakContours) = findNPeaks(gray, 
-                                    kernel, 
-                                    p=0.975, 
-                                    n=9, 
-                                    margin=1, 
-                                    offset=(0,0), 
-                                    drawImg=drawImg, 
-                                    drawInvalidPeaks=True)
-
-        return drawImg
-        cv.imshow("gray", gray)
-        #peakFeatureExtractor = AdaptiveThresholdPeak(20, 
-        #                                             kernelSize=11, 
-        #                                             p=0.97)
-        
-        #lsTracker = LightSourceTrackInitializer()
-        blurred = cv.GaussianBlur(gray, (5,5),0)
-        #cv.imshow("blur", cv.resize(blurred, (1280, 720)))
-        #g = GradientFeatureExtractor(None, 4, 5)
-        #gradImg = g(blurred)
-        #localMaxImg = localMax(blurred, circularKernel(11))
-
-        #maxGrad = np.max(gradImg)
-        #maxLocalMax = np.max(localMaxImg)
-        #gradImg = gradImg*float(maxLocalMax)/maxGrad
-        #gradImg = gradImg.astype(np.uint8)
-        #print("HEHR")
-        #print(maxGrad)
-        #print(maxLocalMax)
-        #print(np.max(gradImg))
-        gradient = cv.morphologyEx(gray, cv.MORPH_GRADIENT, circularKernel(11))
-        ret, gradient = cv.threshold(gradient, self.analyzeThreshold, 256, cv.THRESH_BINARY)
-        cv.imshow("morph gradient", cv.resize(gradient, (1280,720)))
-
-        #localMaxAndGrad = cv.bitwise_or(gradImg, localMaxImg)
-        #ret, threshLocalMaxAndGrad = cv.threshold(localMaxAndGrad, 0, 256, cv.THRESH_TOZERO)
-        
-        #cv.imshow("local max + grad", cv.resize(threshLocalMaxAndGrad, (1280, 720)))
-        
-        #ret, thresholded = cv.threshold(gray, self.analyzeThreshold, 256, cv.THRESH_BINARY)
-        #cv.imshow("thresholded", thresholded)
-        return gray
-                
-        
-        if mask is None:
-            mask = np.ones(imgRect.shape[:2], dtype=np.uint8)
-
-        #nFeatures = 5 ###########################################
-        if nFeatures == 0:
-            nFeatures = 5
-
-        gray = cv.cvtColor(imgRect, cv.COLOR_BGR2GRAY)
-        grayMasked = cv.bitwise_and(gray, gray, mask=mask)
-        #testImg = self._testProcessImage(gray.copy())
-        #cv.imshow("gray", grayMasked)
-        blur3 = cv.GaussianBlur(gray.copy(), (3,3),0)
-        blurMasked3 = cv.bitwise_and(blur3, blur3, mask=mask)
-        #blur5 = cv.GaussianBlur(gray.copy(), (5,5),0)
-        #blurMasked5 = cv.bitwise_and(blur3, blur5, mask=mask)
-        #blur11 = cv.GaussianBlur(gray.copy(), (11,11),0)
-        #blurMasked11 = cv.bitwise_and(blur11, blur11, mask=mask)
-        #cv.imshow("blur", blurMasked)
-
-        
-
-        """
-        # peaks dilation
-        peaksDilationImg = blurMasked3.copy()
-        
-        kernelSize = 21
-        #kernel1 = circularKernel(kernelSize)
-        #peaksDilation = findPeaksDilation(peaksDilationImg, kernel1)
-        #print("Freq peaks dilation", 1/elapsed)
-        #adaThresh = AdaptiveThresholdPeak(nFeatures, thresholdType=cv.THRESH_BINARY)
-
-        #ret, peaksDilation = cv.threshold(peaksDilation, self.analyzeThreshold, 256, cv.THRESH_TOZERO)
-        #cv.imshow("peaks dilation kernel {}".format(kernelSize), peaksDilation)
-
-        # max peak contour
-        start = time.time()
-        img = peaksDilationImg.copy()
-        drawImg = cv.cvtColor(peaksDilationImg.copy(), cv.COLOR_GRAY2BGR)
-        #peakCenters, peakContours = findNPeaks(img, kernelSize=kernelSize, p=.95, n=nFeatures, margin=5, drawImg=drawImg)
-        elapsed = time.time()-start
-        print("Freq max peaks:", 1/elapsed)
-        #cv.imshow("max peak contour", drawImg)
-        """ 
-        """
-        # Gradient
-
-        gradFeatExt = GradientFeatureExtractor(None, nFeatures, kernelSize=3)
-        gradImg = gradFeatExt(grayMasked)
-        
-        maxGrad = np.max(gradImg)
-        gradImg = cv.GaussianBlur(gradImg, (5,5),0)
-        ret, gradImg = cv.threshold(gradImg, self.analyzeThreshold, 256, cv.THRESH_BINARY)
-        #cv.imshow("gradient3", gradImg)
-
-        gradFeatExt = GradientFeatureExtractor(None, nFeatures, kernelSize=5)
-        gradImg = gradFeatExt(grayMasked)
-        ret, gradImg = cv.threshold(gradImg, self.analyzeThreshold, 256, cv.THRESH_BINARY)
-        #cv.imshow("gradient5", gradImg)
-        """
-        
-        # Adaptive threshold (HATS)
-        minArea = 5
-        adaThresh = AdaptiveThreshold2(nFeatures, minArea=minArea, marginPercentage=0.0, thresholdType=cv.THRESH_BINARY)
-        adaThreshImg = blurMasked3.copy()
-        drawImg = cv.cvtColor(adaThreshImg, cv.COLOR_GRAY2BGR)
-        adaThresh.process(adaThreshImg, drawImg=drawImg)
-        adaThreshImg = adaThresh.img
-        cv.imshow("adaptive threshold min area: {}".format(minArea), adaThreshImg)
-
-        cv.imshow("adaptive threshold min area: {} candidates".format(minArea), drawImg)
-        
-        """
-        ret, data = cv.threshold(peaksDilation, self.analyzeThreshold, 256, cv.THRESH_TOZERO)
-        _, contours, hier = cv.findContours(data, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
-        print("Ncontours", len(contours))
-        cv.imshow("peaks dilation blured threshold", data)
-
-        adaThresh = AdaptiveThreshold2(nFeatures, minArea=0, marginPercentage=0.0, thresholdType=cv.THRESH_TOZERO)
-        adaThresh.process(peaksDilation)
-        peaksDilation = adaThresh.img
-        #cv.imshow("peaks dilation blured adaptive threshold", peaksDilation)
-        """
-
-        """
-        # some other threshold
-        data = grayMasked.copy()
-        neighborhood_size = 3
-        threshold = 10
-        data_max = filters.maximum_filter(data, neighborhood_size)
-
-        indices = np.where(data == data_max)
-        maxima = np.zeros(blurMasked.shape, np.uint8)
-        maxima[indices] = blurMasked[indices]
-        
-        data_min = filters.minimum_filter(data, neighborhood_size)
-        #diff = ((data_max - data_min) > 3)
-        diff = (data_min > data_max*0.95)
-        maxima[diff == 0] = 0
-        maximaOrid = maxima
-        cv.imshow("some other threshold", maximaOrid)
-
-        # same but different
-        #data = blurMasked.copy()
-        data = grayMasked.copy()
-        data = AdaptiveThreshold2(nFeatures, minArea=3, marginPercentage=0.05, thresholdType=cv.THRESH_TOZERO).process(data)
-
-        cv.imshow("adaptive threshold min area 3 margin 0.05", data)
-        """
-
-        """
-        # find best point candidates
-        start = time.time()
-        data = blurMasked3.copy()
-        #minArea = 3
-        #minRatio = 0.3
-        #marginP = 0
-        #adaExt = AdaptiveThreshold2(nFeatures, minArea=minArea, marginPercentage=marginP, minRatio=minRatio, thresholdType=cv.THRESH_BINARY)
-        #lightCndidates = adaExt.process(data)
-        #data = adaExt.img
-
-
-
-        cv.imshow("adaptive feature thingy", data)
-        _, contours, hier = cv.findContours(data, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
-        #lightCndidates = [contourCentroid(cnt) for cnt in contours]
-        
-        data = cv.cvtColor(data, cv.COLOR_GRAY2BGR)
-        for cnt, cent in zip(contours, lightCndidates):
-            cv.drawContours(data, [cnt], 0, (255,0,0), 1)
-            cv.circle(data, cent, 1, (255,0,0), 1)
-
-        from lolo_perception.pose_estimation import DSPoseEstimator
-        from lolo_perception.camera_model import usbCamera720p
-        from lolo_perception.feature_model import bigPrototype5
-        from lolo_perception.perception_utils import plotPoints, plotAxis
-        camera = usbCamera720p
-        featureModel = bigPrototype5
-        poseEst = DSPoseEstimator(camera, 
-                                  featureModel=featureModel,
-                                  ignoreRoll=False, 
-                                  ignorePitch=False, 
-                                  flag=cv.SOLVEPNP_EPNP,#cv.SOLVEPNP_ITERATIVE, 
-                                  calcCovariance=False)
-
-        
-        lightCndidates.sort(key=lambda p: p[1], reverse=True) # largest y coordinate probably
-        maxAdditionalCandidates = 0
-        lightCndidates = lightCndidates[:nFeatures+maxAdditionalCandidates] # to reduce computation
-
-        if len(lightCndidates) >= nFeatures:
-            ret = poseEst.findBestImagePoints(lightCndidates)
-            if ret is not None:
-                bestImagePoints, bestTranslationVec, bestRotationVec, bestRms = ret
-                plotPoints(data, bestImagePoints, color=(255,0,255), radius=5)
-                plotAxis(data, bestTranslationVec, bestRotationVec, camera, np.zeros((3,3)), 0.43)
-            else:
-                print("noenoeanoaeon")
-        else:
-            print("not enough features detected")
-        elapsed = time.time()-start
-        print("Pose est freq {} features: {}".format(len(lightCndidates), 1/elapsed))
-        cv.imshow("light candidates", data)
-        """
-        
-        """
-        # peak finding
-        start = time.time()
-        data = grayMasked.copy()
-        ret, data = cv.threshold(grayMasked, self.analyzeThreshold, 256, cv.THRESH_TOZERO)
-        maximaPrev = None
-        for k in (7,):# 5, 7, 9, 11, 15, 21):
-            data_max = cv.morphologyEx(data, cv.MORPH_DILATE, np.ones((k,k)))
-            #data_min = cv.morphologyEx(data, cv.MORPH_ERODE, np.ones((k,k)))
-            diff = (data > data_max*0.999)
-
-            maxima = data.copy()
-            maxima[diff == 0] = 0
-            
-            if maximaPrev is not None:
-                indices = np.where(maxima != maximaPrev)
-                maxima = np.zeros(data.shape, np.uint8)
-                maxima[indices] = data[indices]
-            maximaPrev = maxima
-
-        #cv.imshow("data max", data_max)
-        cv.imshow("some other thres again isch", maxima)
-        elapsed = time.time()-start
-        print("Freq", 1/elapsed)
-        """
-        """
-        # max/mean shift
-        start = time.time()
-
-        maxShiftImg = grayMasked.copy()
-        threshold = np.max(maxShiftImg)*0.8
-        _, maxShiftImg = cv.threshold(maxShiftImg, threshold, 256, cv.THRESH_TOZERO)
-        cv.imshow("thresholded maxShift", maxShiftImg)
-        drawImg = cv.cvtColor(maxShiftImg.copy(), cv.COLOR_GRAY2BGR)
-        drawImg2 = cv.cvtColor(maxShiftImg.copy(), cv.COLOR_GRAY2BGR)
-        drawImg = drawImg2
-
-        h, w = gray.shape
-        radius = 5
-        #dilated = cv.dilate(grayMasked, circularKernel(15))
-        stride = radius*3
-        size = radius*2 +1
-        kernel = circularKernel(size)
-        centerVotes = {}
-        maxIter = stride/radius*2 -1
-        for i in range(radius, w-radius, stride):
-            for j in range(radius, h-radius, stride):
-                mask = maxShiftImg[j-radius:j+radius+1, i-radius:i+radius+1]
-                mask = cv.bitwise_and(mask, mask, mask=kernel)
-                if np.max(mask) > 0:
-                    #i, j = 684, 548
-                    cv.circle(drawImg2, (i,j), radius, (50, 50, 50), 1)
-                    
-                    center, patch, iterations = maxShift(maxShiftImg, (i, j), kernel, maxIter=maxIter, drawImg=drawImg)
-                    #center, patch, iterations = meanShift(maxShiftImg, center, kernel, maxIter=2, drawImg=drawImg)
-                    
-                    if iterations < maxIter:
-                        # score is the mean of the final patch
-                        score = gray[center[1], center[0]]
-                        if score > 0:
-                            centerVotes[center] = score
-                    #break
-
-        centers = centerVotes.keys()
-        centers.sort(key=lambda c: centerVotes[c], reverse=True)
-        if centers:
-            idx = min(len(centers)-1, nFeatures-1)
-            intensityLowest = centerVotes[centers[idx]]
-            threshold = intensityLowest*0.8
-        
-        for i, center in enumerate(centers):
-            #if i >= nFeatures and centerVotes[center] < threshold:
-            #    break
-            cv.circle(drawImg2, center, 0, (255, 0, 255), 2)
-            drawInfo(drawImg2, (center[0]+13, center[1]-13), str(round(centerVotes[center],2)), color=(255, 0, 255), fontScale=0.3, thickness=1)
-
-        elapsed = time.time() - start
-        print("Freq maxShift: {}".format(1./elapsed))
-        cv.imshow("max shift", drawImg2)
-        # /max shift
-        """
-        """
-        # max peak kernel est with peaks with dilation
-        start = time.time()
-        maxPeakImg = grayMasked.copy()
-        maxPeakImgColor = cv.cvtColor(maxPeakImg, cv.COLOR_GRAY2BGR)
-
-        _, peaks = findMaxPeaks(maxPeakImg, .95, drawImg=maxPeakImgColor)
-        peaks.sort(key=lambda p: cv.minEnclosingCircle(p)[1], reverse=True)
-        if peaks:
-            for p in peaks:
-                maxCircleRadius = cv.minEnclosingCircle(peaks[0])[1]
-                center = contourCentroid(p)
-                cv.circle(maxPeakImgColor, center, int(maxCircleRadius*10), (255,0,0), 1)
-                #print(maxCircleRadius)
-            #maxCircleRadius 
-            maxCircleRadius = int(maxCircleRadius)
-            maxCircleRadius = max(maxCircleRadius, 3)
-            maxCircleRadius = min(maxCircleRadius, 11)
-            cv.imshow("max peak", maxPeakImgColor)
-
-            peaksDilation = maxPeakImg.copy()
-            p = 0.9
-            if maxCircleRadius < 5:
-                p = 0.6
-            #print(p)
-            threshold = int(np.max(peaksDilation)*p)
-            ret, peaksDilation = cv.threshold(peaksDilation, threshold, 256, cv.THRESH_TOZERO)
-            kernel = circularKernel(int(maxCircleRadius)*2+1)
-            peaksDilation = findPeaksDilation(peaksDilation, kernel)
-
-            peaksDilation = cv.morphologyEx(peaksDilation, cv.MORPH_DILATE, kernel, iterations=1)#cv.dilate(peaksDilation, kernel)
-
+        N = 0
+        times = []
+        for i in range(N):
+            start = time.time()
+            hats.process(gray, maxAdditionalCandidates=50, drawImg=drawImg)
             elapsed = time.time() - start
-            #print("Freq peaks dilation: {}".format(1./elapsed))
-            cv.imshow("peaks dilation", peaksDilation)
-            # / peaks with dilation
+            times.append(elapsed)
+        if N > 0:
+            print(hats.iterations)
+            print("Min time:", min(times))
+        return drawImg
         """
-        return grayMasked
-
-        
-        # adaptive threshold
-        start = time.time()
-        adaThresh = maximaOrid.copy()
-        adaThresh = AdaptiveThreshold2(nFeatures, minArea=1, marginPercentage=0).process(adaThresh)
-
-        _, contours, hier = cv.findContours(adaThresh, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
-        contours = sorted(contours, key=cv.contourArea, reverse=True)
-
-        contourAreas = [cv.contourArea(cnt) for cnt in contours]
-        if len(contours) >= nFeatures:
-            lightArea = np.mean(contourAreas[:nFeatures])
-        elif len(contours) > 0:
-            lightArea = cv.contourArea(contours[0])
-        else:
-            lightArea = 0
-        lightRadius = np.sqrt(lightArea/np.pi)
-
-        elapsed = time.time() - start
-        #print("Freq adaThresh: {}".format(1./elapsed))
-        
-        #cv.imshow("adaptive threshold min area 1", adaThresh)
-
-        # /adaptive threshold
-
-
-        return grayMasked
-        #kernelType = cv.MORPH_RECT #cv.MORPH_ELLIPSE
-        neighborhood_size = 20
-        threshold = 50
-        kernel = circularKernel(5)
-        data = cv.dilate(grayMasked, kernel, iterations=1)
-        data_max = filters.maximum_filter(data, neighborhood_size)
-        maxima = (data == data_max)
-        data_min = filters.minimum_filter(data, neighborhood_size)
-        diff = ((data_max - data_min) > threshold)
-        maxima[diff == 0] = 0
-
-        labeled, num_objects = ndimage.label(maxima)
-        slices = ndimage.find_objects(labeled)
-        x, y = [], []
-        for dy,dx in slices:
-            x_center = (dx.start + dx.stop - 1)/2
-            x.append(x_center)
-            y_center = (dy.start + dy.stop - 1)/2    
-            y.append(y_center)
-            cv.circle(imgRect, (x_center,y_center), 1, (0, 0, 255), 2)
-        
-        cv.imshow("local maxima", imgRect)
-        
-        # gradient
-        kernelGrad = circularKernel(5) #cv.getStructuringElement(kernelType, (15,15))
-        morphImg = grayMasked
-        eroded = cv.erode(morphImg, kernelGrad, iterations=1)
-        dilated = cv.dilate(morphImg, kernelGrad, iterations=1)
-        indices = np.where(eroded == dilated)
-        morphImg = np.zeros(gray.shape, np.uint8)
-        morphImg[indices] = gray[indices]
-
-        #morphGrad = cv.morphologyEx(grayMasked, cv.MORPH_GRADIENT, kernelGrad)
-        cv.imshow("morph halabalula", morphImg)
-
-        gradFeatExt = GradientFeatureExtractor(None, nFeatures, kernelSize=5)
-        
-        gradImg = gradFeatExt(gray)
-        cv.imshow("gradient", gradImg)
-        gradImg = cv.dilate(gradImg, kernelGrad, iterations=1)
-        gradImg = AdaptiveThreshold2(nFeatures, minArea=2, thresholdType=cv.THRESH_TOZERO).process(gradImg)
-        gradImg = AdaptiveOpen(nFeatures=nFeatures, kernelSize=3, kernelType=cv.MORPH_ELLIPSE, startIterations=1, maxIter=10).process(gradImg)
-        #gradImg = removeNeighbouringContoursFromImg(gradImg, minDist=10, key=cv.contourArea)
-        
-
-        gradImg = cv.bitwise_and(gradImg, gradImg, mask=mask)
-        
-        #gradImg = cv.GaussianBlur(gradImg, (5,5),0)
-        gradImg = cv.medianBlur(gradImg, 5)
-        
-        
-        #gradImg = findPeaksDilation(gradImg, 50)
-        #
-        #gradImg = cv.morphologyEx(gradImg, cv.MORPH_OPEN, kernelGrad, iterations=1)
-        
-        
-        #gradImg = cv.morphologyEx(gradImg, cv.MORPH_OPEN, kernelGrad, iterations=1)
-        #gradImg = cv.dilate(gradImg, kernelGrad, iterations=1)
-        
-
-
-        return grayMasked
 
     def _histogram(self, gray):
         # 1D histogram
@@ -1178,14 +760,11 @@ class ImageAnalyzeNode:
         self.histogramActive = False
         pause = True
 
-        # TODO: remove
-        idxs = [109, 582, 995, 996, 997, 998, 999, 1000, 1001, 1309, 1327, 1392, 1401, 1594, 2058, 2081, 2259]
         for imgName, frame, i in imageGenerator():
-            #if i not in idxs:
-            #    continue
+
             imgColorRaw = frame.copy()
             imgRect = self.camera.undistortImage(imgColorRaw).astype(np.uint8)
-            self._publish(imgColorRaw, imgRect)
+            
             print("Frame " + str(i))
             lightSourceAnalyzer.update(imgRect)
             rcfAnalyzer.update(imgRect)
@@ -1193,6 +772,7 @@ class ImageAnalyzeNode:
             if analyzeImages:
                 key = self.analyzeImage(imgName, imgColorRaw, imgRect, labeledImgs, i)
             else:
+                self._publish(imgColorRaw, imgRect)
                 while True:
                     cv.imshow("frame", imgRect)
                     cv.setWindowTitle("frame", imgName)
@@ -1278,7 +858,8 @@ class ImageAnalyzeNode:
         featureModel = FeatureModel.fromYaml(featureModelYamlPath)
         featureExtractor = Perception(Camera(self.camera.projectionMatrix, np.zeros((1,4), dtype=np.float32), resolution=self.camera.resolution),
                                       featureModel)
-        
+        featureExtractor.maxAdditionalCandidates = 100000
+
         labeledImgs = readLabeledImages(datasetPath, labelFile)
 
         cv.imshow("frame", np.zeros((10,10), dtype=np.uint8))
@@ -1287,9 +868,12 @@ class ImageAnalyzeNode:
 
         allErrors = []
         failedImgs = []
+        filedNCandidates = []
         nCandidates = []
-        
-        timeitNumber = 5
+        peakIterations = []
+        poseEstimationAttempts = []
+
+        timeitNumber = 0
         times = [] # total time
         processTimes = [] # image processing time
         undistortTimes = [] # undistortion time
@@ -1300,8 +884,11 @@ class ImageAnalyzeNode:
         for imgName, frame, i in imageGenerator():
             imgColorRaw = frame.copy()
 
-            timitFunc = lambda: self.camera.undistortImage(imgColorRaw).astype(np.uint8)
-            undistortElapsed = min(timeit.repeat(timitFunc, repeat=timeitNumber, number=1))
+            undistortElapsed = 0.1
+            if timeitNumber > 0:
+                timitFunc = lambda: self.camera.undistortImage(imgColorRaw).astype(np.uint8)
+                undistortElapsed = min(timeit.repeat(timitFunc, repeat=timeitNumber, number=1))
+
             imgRect = self.camera.undistortImage(imgColorRaw).astype(np.uint8)
 
             if not undistort:
@@ -1352,17 +939,23 @@ class ImageAnalyzeNode:
                 #for i in range(10):
                 #start = time.clock()
                 #elapsed = time.clock()-start
-                timitFunc = lambda: featureExtractor.estimatePose(imgRectROI, 
-                                                                  estDSPose=estDSPose,
-                                                                  estCameraPoseVector=None,
-                                                                  colorCoeffs=colorCoeffs)
-                elapsed = min(timeit.repeat(timitFunc, repeat=timeitNumber, number=1))
-
-                dsPose, poseAquired, candidates, processedImg, poseImg = featureExtractor.estimatePose(imgRectROI, 
-                                                                                                        estDSPose=estDSPose,
-                                                                                                        estCameraPoseVector=None,
-                                                                                                        colorCoeffs=colorCoeffs)
+                elapsed = 0.1
+                if timeitNumber > 0:
+                    timitFunc = lambda: featureExtractor.estimatePose(imgRectROI, 
+                                                                    estDSPose=estDSPose,
+                                                                    estCameraPoseVector=None,
+                                                                    colorCoeffs=colorCoeffs)
+                    elapsed = min(timeit.repeat(timitFunc, repeat=timeitNumber, number=1))
                 
+                
+                dsPose, poseAquired, candidates, processedImg, poseImg = featureExtractor.estimatePose(imgRectROI, 
+                                                                                                        estDSPose=None,
+                                                                                                        estCameraPoseVector=None,
+                                                                                                        colorCoeffs=colorCoeffs,
+                                                                                                        calcCovariance=False)
+                
+                
+
                 cv.imshow("processed image", processedImg)
                 cv.imshow("frame", tmpFrame)
                 cv.setWindowTitle("frame", imgName)
@@ -1373,22 +966,33 @@ class ImageAnalyzeNode:
                     dsPose, poseAquired, candidates, processedImg, poseImg = featureExtractor.estimatePose(imgRectROI, 
                                                                                                         estDSPose=None,
                                                                                                         estCameraPoseVector=None,
-                                                                                                        colorCoeffs=colorCoeffs)
+                                                                                                        colorCoeffs=colorCoeffs,
+                                                                                                        calcCovariance=False)
                     elapsed = time.clock()-start
+
                     cv.imshow("processed image", processedImg)
                     cv.imshow("frame", tmpFrame)
                     cv.setWindowTitle("frame", imgName)
                     key = cv.waitKey(1)
 
+                attempts = 0
+                if dsPose:
+                    attempts = dsPose.attempts
+                poseEstimationAttempts.append(attempts)
+                peakIterations.append(featureExtractor.peakFeatureExtractor.iterations)
+
                 for ls in candidates:
                     ls.center = ls.center[0]+offset[0], ls.center[1]+offset[1]
                 
                 covElapsed = 0
-                if dsPose:
+                if False and dsPose:
                     if dsPose._covariance is not None:
                         raise Exception("Covariance already calculated")
-                    timeitFunc = lambda: dsPose.calcCovariance()
-                    covElapsed = min(timeit.repeat(timeitFunc, repeat=timeitNumber, number=1))
+                    
+                    covElapsed = 0.1
+                    if timeitNumber > 0:
+                        timeitFunc = lambda: dsPose.calcCovariance()
+                        covElapsed = min(timeit.repeat(timeitFunc, repeat=timeitNumber, number=1))
                     dsPose.calcCovariance()
                     #for ls in dsPose.associatedLightSources:
                     #    ls.center = ls.center[0]+offset[0], ls.center[1]+offset[1]
@@ -1409,10 +1013,17 @@ class ImageAnalyzeNode:
                     errors = [np.linalg.norm([p[0]-e[0], p[1]-e[1]]) for p, e in zip(points, errCircles)]
                     err = sum(errors)/len(errors)
                     allErrors.append(err)
-                    
                 else:
                     allErrors.append(None)
                     failedImgs.append(i)
+                
+                if dsPose:
+                    for ls in dsPose.associatedLightSources:
+                        if candidates.index(ls) > len(errCircles)-1:
+                            filedNCandidates.append(i)
+                            break
+                else:
+                    filedNCandidates.append(i)
 
                 allErrorsTemp = [e for e in allErrors if e is not None]
                 if allErrorsTemp:
@@ -1438,9 +1049,14 @@ class ImageAnalyzeNode:
                 break
 
         print("Failed images ({}): {}".format(len(failedImgs), failedImgs))
+        print("Failed n candidates ({}): {}".format(len(filedNCandidates), filedNCandidates))
+        
         nImages = i
         imageNumbers = list(range(1, nImages+1))
-        plt.figure()
+
+        figures = []  
+
+        figures.append(plt.figure())
         plt.xlim(0, nImages+1)
         plt.ylabel("Pixel error")
         plt.xlabel("Image number")
@@ -1449,27 +1065,45 @@ class ImageAnalyzeNode:
         for i,e in enumerate(allErrors):
             if e is None:
                 plt.vlines(i, min(allErrorsTemp), max(allErrorsTemp), color="r")
-            
-        plt.figure()
+  
+        figures.append(plt.figure())
         plt.xlim(0, nImages+1)
         plt.ylabel("Computation time")
         plt.xlabel("Image number")
         plt.plot(imageNumbers, times)
-        plt.plot(imageNumbers, undistortTimes)
-        plt.plot(imageNumbers, processTimes)
+        #plt.plot(imageNumbers, undistortTimes)
+        #plt.plot(imageNumbers, processTimes)
         plt.plot(imageNumbers, covTimes)
-        plt.legend(["Total", "Undistortion", "Image processing", "Covariance calculation"])
-        plt.figure()
+        #plt.legend(["Total", "Undistortion", "Image processing", "Covariance calculation"])
+        
+        figures.append(plt.figure())
         plt.xlim(0, nImages+1)
         plt.ylabel("Frequency")
         plt.xlabel("Image number")
         plt.plot(imageNumbers, 1./np.array(times))
-        plt.figure()
+
+        figures.append(plt.figure())
         plt.xlim(0, nImages+1)
         plt.ylabel("Number of detected light sources")
         plt.xlabel("Image number")
         plt.plot(imageNumbers, nCandidates)
+
+        figures.append(plt.figure())
+        plt.xlim(0, nImages+1)
+        plt.ylabel("Peak iterations")
+        plt.xlabel("Image number")
+        plt.plot(imageNumbers, peakIterations) 
+
+        figures.append(plt.figure())
+        plt.xlim(0, nImages+1)
+        plt.ylabel("Pose estimation attempts")
+        plt.xlabel("Image number")
+        plt.plot(imageNumbers, poseEstimationAttempts)
         plt.show()
+        
+        print("Saving images")
+        for i, fig in enumerate(figures):
+            fig.savefig("fig{}.png".format(i), dpi=fig.dpi, format='png')
 
         saveLabeledImages(datasetPath, labelFile, labeledImgs)
         cv.destroyAllWindows()
@@ -1579,26 +1213,27 @@ if __name__ == "__main__":
 
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/contour.yaml")
     #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/171121/171121_straight_test.MP4")
+    videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/171121/171121_straight_test_reversed.mkv")
     #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/171121/171121_angle_test.MP4")
     #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/FILE0197.MP4")
-    videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/271121/271121_5planar_1080p.MP4")
-    #imgLabelNode.analyzeVideoImages(datasetPath, labelFile, videoPath, startFrame=1, analyzeImages=False)
+    #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/271121/271121_5planar_1080p.MP4")
+    imgLabelNode.analyzeVideoImages(datasetPath, labelFile, videoPath, startFrame=200, analyzeImages=False)
 
     # DoNN dataset
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/donn_camera.yaml")
     videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "image_dataset/dataset_recovery/donn.mp4")
     datasetRecovery = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "image_dataset/dataset_recovery")
-    imgLabelNode.analyzeVideoImages(datasetRecovery, "donn.txt", videoPath, startFrame=1, analyzeImages=True, test=True)
+    #imgLabelNode.analyzeVideoImages(datasetRecovery, "donn.txt", videoPath, startFrame=1629, analyzeImages=True, test=False)
 
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/usb_camera_720p_sim.yaml")
     rosbagFile = "sim_bag.bag"
     rosbagPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), join("rosbags", rosbagFile))
-    #imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "/lolo/sim/camera_aft/image_color", startFrame=5000, analyzeImages=False)
+    #imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "/lolo/sim/camera_aft/image_color", startFrame=1000, analyzeImages=False)
 
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/usb_camera_720p_8.yaml")
     rosbagFile = "ice.bag"
     rosbagPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), join("rosbags", rosbagFile))
-    #imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "lolo_camera/image_raw", startFrame=100, analyzeImages=False)
+    #imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "lolo_camera/image_raw", startFrame=615, analyzeImages=True)
     
 
     

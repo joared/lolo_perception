@@ -54,11 +54,13 @@ class FeatureModel:
         if placementUncertainty == 0:
             print("FeatureModel WARNING: placement uncertainty not specified, using default")
             self.placementUncertainty = self.maxRad*self.DEFAULT_PLACEMENT_UNCERTAINTY_P
+            print("Placement: {}".format(self.placementUncertainty))
 
         self.detectionTolerance = detectionTolerance
         if detectionTolerance == 0:
             print("FeatureModel WARNING: detection tolerance not specified, using default")
             self.detectionTolerance = self.maxRad*self.DEFAULT_DETECTION_TOLERANCE_P
+            print("Tolerance: {}".format(self.detectionTolerance))
 
         # This uncertainty is used to calculate the maximum allowed reprojection error RMSE
         # when estimating a pose from detected light sources

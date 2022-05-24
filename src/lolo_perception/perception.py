@@ -1,3 +1,4 @@
+from ast import Mod
 from concurrent.futures import process
 import cv2 as cv
 import time
@@ -5,9 +6,9 @@ import numpy as np
 import itertools
 from scipy.spatial.transform import Rotation as R
 
-from lolo_perception.feature_extraction import featureAssociation, featureAssociationSquare, featureAssociationSquareImproved, regionOfInterest, localMax, LightSourceTrackInitializer, AdaptiveThreshold2, AdaptiveThresholdPeak, ModifiedHATS, LocalMaxHATS
+from lolo_perception.feature_extraction import featureAssociation, featureAssociationSquare, featureAssociationSquareImproved, localMax, LightSourceTrackInitializer, AdaptiveThreshold2, AdaptiveThresholdPeak, ModifiedHATS, LocalMaxHATS
 from lolo_perception.pose_estimation import DSPoseEstimator, calcMahalanobisDist
-from lolo_perception.perception_utils import plotPoseImageInfo
+from lolo_perception.perception_utils import plotPoseImageInfo, regionOfInterest
 
 class AssociateCombinationGenerator:
     def __init__(self, lsCombs, associateFunc):
@@ -22,7 +23,7 @@ class AssociateCombinationGenerator:
         return len(self._comb)
 
 class Perception:
-    def __init__(self, camera, featureModel):
+    def __init__(self, camera, featureModel, hatsMode=ModifiedHATS.MODE_VALLEY):
         self.camera = camera
         self.featureModel = featureModel
 
@@ -59,12 +60,13 @@ class Perception:
         # Use HATS when light sources are "large"
         # This feature extractor sorts candidates based on area
         
-        
+        """
         self.localMaxHATS = LocalMaxHATS(len(self.featureModel.features), 
                                          kernelSize=11, 
                                          p=None, 
                                          maxIntensityChange=0.7,
                                          showHistogram=False)
+        """
         
         #self.log = 
         """
@@ -76,27 +78,31 @@ class Perception:
         """
         
         minArea = 20
+        minCircleExtent = 0.1 # 0.2
         self.areaScale = 3 # change to HATS when all areas > minArea*areaScale 
-        
         self.hatsFeatureExtractor = ModifiedHATS(len(self.featureModel.features), 
-                                                 peakMargin=0, # this should be zero
+                                                 peakMargin=0, # this should be zero if using MODE_VALLEY or MODE_PEAK
                                                  minArea=minArea, 
-                                                 minRatio=0.2, # might not be good for outlier detection, convex hull instead?
+                                                 minRatio=minCircleExtent, # might not be good for outlier detection, convex hull instead?
                                                  maxIntensityChange=0.7,
                                                  blurKernelSize=5,
                                                  thresholdType=cv.THRESH_BINARY,
-                                                 mode=ModifiedHATS.MODE_VALLEY,
+                                                 mode=hatsMode,
                                                  showHistogram=False)
 
         # Use local peak finding to initialize and when light sources are small
         # This feature extractor sorts candidates based on intensity and then area
+        p = .975
         self.peakFeatureExtractor = AdaptiveThresholdPeak(len(self.featureModel.features), 
-                                                          kernelSize=11, # 11 or 25
-                                                          p=0.975, #0.975, #0.97 # TODO: this is good for image 272 with planar configuration
+                                                          kernelSize=11, # 11 for 720p, 25 for 1080p
+                                                          pMin=p, #0.93 set pMin = pMax for fixed p
+                                                          pMax=p, # 0.975
                                                           maxIntensityChange=0.7,
                                                           minArea=minArea,
-                                                          minCircleExtent=0.2,
-                                                          blurKernelSize=5) # 5 # TODO: set to 3/5
+                                                          minCircleExtent=minCircleExtent,
+                                                          blurKernelSize=5,  # 5 for 720p, 11 for 1080p
+                                                          ignorePAtMax=True,
+                                                          maxIter=30)
         
         # start with peak
         self.featureExtractor = self.peakFeatureExtractor
@@ -105,12 +111,11 @@ class Perception:
         # the feature extractor.
         # 6 gives a minimum frame rate of about 0.3 when all 
         # combinations of candidates are iterated over
-        self.maxAdditionalCandidates = 6
+        self.maxAdditionalCandidates = 6 # 6
 
         # margin of the region of interest when pose has been aquired
-        #self.roiMargin = int(self.camera.cameraMatrix[0, 0]*self.camera.resolution[1]/25700.)
         self.roiMargin = int(round(0.0626*self.camera.cameraMatrix[0, 0])) # Adapted so that fx = 1400 -> roiMargin = 87.64
-
+        
         # Pose estimator that calculates poses from detected light sources
         initPoseEstimationFlag = cv.SOLVEPNP_ITERATIVE
         poseEstimationFlag = cv.SOLVEPNP_ITERATIVE
@@ -124,7 +129,7 @@ class Perception:
         # valid orientation range [yawMinMax, pitchMinMax, rollMinMax]. Currently not used to disregard
         # invalid poses, but the axis and region of interest will be shown in red when a pose has 
         # an orientation within the valid range 
-        self.validOrientationRange = [np.radians(80), np.radians(15), np.radians(15)]
+        self.validOrientationRange = [np.radians(80), np.radians(30), np.radians(30)]
 
         # mahalanobis distance threshold
         self.mahalanobisDistThresh = 12.592
@@ -144,6 +149,10 @@ class Perception:
         self.stage = self.startStage
         self.stage2Iterations = 15 # Tracking light sources for this amount of frames
         self.stage4Iterations = 10 # Acquiring pose for this amount of frames
+
+        # Access images from perception_node
+        self.processedImg = None
+        self.poseImg = None
 
     def updateDSPoseFromNewCameraPose(self, estDSPose, estCameraPoseVector):
         if self.estCameraPoseVector is not None and estCameraPoseVector is not None:
@@ -212,7 +221,8 @@ class Perception:
                      imgColor, 
                      estDSPose=None,
                      estCameraPoseVector=None,
-                     colorCoeffs=None):
+                     colorCoeffs=None,
+                     calcCovariance=False):
 
         #estCameraPoseVector = None ###
 
@@ -312,8 +322,8 @@ class Perception:
                 elif self.featureExtractor == self.peakFeatureExtractor:
                     # sort by summed intensity
                     # TODO: not sure how much this improves
-                    #lightCandidateCombinations.sort(key=lambda comb: (sum([ls.intensity for ls in comb]), sum([ls.area for ls in comb])), reverse=True)
-                    lightCandidateCombinations.sort(key=lambda comb: sum([ls.intensity for ls in comb]), reverse=True)
+                    lightCandidateCombinations.sort(key=lambda comb: (sum([ls.intensity for ls in comb]), sum([ls.area for ls in comb])), reverse=True)
+                    #lightCandidateCombinations.sort(key=lambda comb: sum([ls.intensity for ls in comb]), reverse=True)
                 else:
                     # using some other 
                     print("sorting by intensity, then area")
@@ -349,6 +359,8 @@ class Perception:
                             # disregard poses with large mahalaobis distance
                             #pass
                         dsPose.detectionCount += estDSPose.detectionCount
+                    if calcCovariance:
+                        dsPose.calcCovariance()
                     poseAquired = True
 
                 else:
@@ -368,7 +380,16 @@ class Perception:
         elif self.stage == 5:
             progress = 1
 
-        # plots pose axis, ROI, light sources etc.  
+        poseEstFlag = self.poseEstimator.flag if estDSPose else self.poseEstimator.initFlag
+
+        if poseEstFlag == cv.SOLVEPNP_ITERATIVE:
+            poseEstMethod = "L-M"
+        elif poseEstFlag == cv.SOLVEPNP_EPNP:
+            poseEstMethod = "EPnP"
+        else:
+            poseEstMethod = poseEstFlag
+            
+        # plots pose axis, ROI, light sources etc. 
         plotPoseImageInfo(poseImg,
                           "{} S{}".format("HATS" if self.featureExtractor == self.hatsFeatureExtractor else "Peak", self.stage),
                           dsPose,
@@ -376,12 +397,19 @@ class Perception:
                           self.featureModel,
                           poseAquired,
                           self.validOrientationRange,
+                          poseEstMethod,
                           roiCnt,
                           roiCntUpdated,
                           progress=progress,
                           fixedAxis=False)
 
-        
+        if roiCntUpdated is not None:# TODO: remove
+            #processedImg = imgColor.copy()
+            cv.drawContours(processedImg, [roiCntUpdated], -1, (0,255,0), 3) 
+        #processedImg = self.hatsFeatureExtractor.img
+
+        self.processedImg = processedImg
+        self.poseImg = poseImg
         return dsPose, poseAquired, candidates, processedImg, poseImg
 
 

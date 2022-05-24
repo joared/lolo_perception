@@ -1,4 +1,6 @@
 import os
+import cv2 as cv
+import numpy as np
 
 def readLabelFile(filepath):
     landmarks = []
@@ -6,7 +8,6 @@ def readLabelFile(filepath):
         for line in f:
             line = line.strip()
             if line:
-                print(line)
                 col, row = line.split()
                 col, row = int(col), int(row)
                 landmarks.append([col, row])
@@ -14,8 +15,35 @@ def readLabelFile(filepath):
     assert len(landmarks) == 8, "Wrong number of landmarks in '{}'".format(os.path.basename(filepath))
     return landmarks
 
+def tuneLandmarks(path, labels, radius):
+    tunedLabels = {}
+    for basename in labels:
+        tunedLandmarks = []
+        img = cv.imread(os.path.join(path, basename) + ".jpg")
+        gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+
+        for lm in labels[basename]:
+            x,y = lm
+            patch = gray[y-radius:y+radius+1, x-radius:x+radius+1]
+            maxIndx = np.unravel_index(np.argmax(patch), patch.shape)
+
+            x += maxIndx[1] - radius
+            y += maxIndx[0] - radius
+
+            tunedLandmarks.append([x,y])
+
+        tunedLabels[basename] = tunedLandmarks
+
+    return tunedLabels
+
 if __name__ == "__main__":
     
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-tune', action='store_true', default=False, help="Tune labels such that they are located at the local maxima")
+    args = parser.parse_args()
+
     labels = {}
     path = "../image_dataset/dataset_recovery"
 
@@ -37,16 +65,19 @@ if __name__ == "__main__":
                 landmarks = readLabelFile(filepath)
                 labels[filename] = landmarks
 
+    if args.tune:
+        print("Tuning labels")
+        labels = tuneLandmarks(path, labels, radius=7)
+
     # Redundancy check
     for i in range(1, 2307):
         assert i == int(sorted(labels.keys(), key=lambda name: int(name))[i-1])
-
+        
     videoName = "donn"
     savefile = videoName + ".txt"
     savePath = os.path.join(path, savefile)
     with open(savePath, "w") as f:
         for l in sorted(labels.keys(), key=lambda name: int(name)):
-            print(l)
             s = videoName + "_" + l
             s += ":["
             for i, lMark in enumerate(labels[l]):

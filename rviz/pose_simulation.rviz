@@ -13,13 +13,17 @@ Panels:
         - /PoseWithCovariance1/Covariance1
         - /PoseWithCovariance1/Covariance1/Position1
         - /PoseWithCovariance1/Covariance1/Orientation1
+        - /PoseWithCovariance2
         - /PoseWithCovariance2/Covariance1
         - /PoseWithCovariance2/Covariance1/Position1
         - /PoseWithCovariance2/Covariance1/Orientation1
-        - /PoseWithCovariance3
         - /PoseWithCovariance3/Covariance1
         - /PoseWithCovariance3/Covariance1/Position1
         - /PoseWithCovariance3/Covariance1/Orientation1
+        - /PoseWithCovariance4
+        - /PoseWithCovariance4/Covariance1
+        - /PoseWithCovariance4/Covariance1/Position1
+        - /PoseWithCovariance4/Covariance1/Orientation1
       Splitter Ratio: 0.5
     Tree Height: 874
   - Class: rviz/Selection
@@ -163,7 +167,7 @@ Visualization Manager:
           Alpha: 0.5
           Color: 255; 255; 127
           Color Style: Unique
-          Frame: Local
+          Frame: Fixed
           Offset: 0.20000000298023224
           Scale: 1
           Value: true
@@ -245,6 +249,36 @@ Visualization Manager:
       Topic: /docking_station_noised/pose/average
       Unreliable: false
       Value: true
+    - Alpha: 1
+      Axes Length: 0.20000000298023224
+      Axes Radius: 0.019999999552965164
+      Class: rviz/PoseWithCovariance
+      Color: 255; 25; 0
+      Covariance:
+        Orientation:
+          Alpha: 0.5
+          Color: 255; 255; 127
+          Color Style: Unique
+          Frame: Local
+          Offset: 0.20000000298023224
+          Scale: 1
+          Value: true
+        Position:
+          Alpha: 0.30000001192092896
+          Color: 204; 51; 204
+          Scale: 1
+          Value: true
+        Value: true
+      Enabled: true
+      Head Length: 0.30000001192092896
+      Head Radius: 0.10000000149011612
+      Name: PoseWithCovariance
+      Shaft Length: 1
+      Shaft Radius: 0.05000000074505806
+      Shape: Axes
+      Topic: /lolo_camera/estimated_pose
+      Unreliable: false
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -273,25 +307,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/ThirdPersonFollower
-      Distance: 2.361816644668579
+      Distance: 2.6763339042663574
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.7499321699142456
-        Y: 5.8488078117370605
-        Z: 2.3096799850463867e-7
+        X: 1.3863581418991089
+        Y: -0.3534514009952545
+        Z: 8.270144462585449e-7
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.5247964859008789
+      Pitch: 0.5547977685928345
       Target Frame: camera1
       Value: ThirdPersonFollower (rviz)
-      Yaw: 1.610402226448059
+      Yaw: 4.618579864501953
     Saved: ~
 Window Geometry:
   Displays:
