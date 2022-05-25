@@ -113,12 +113,12 @@ if __name__ == "__main__":
     loc1 = 35
     loc2 = 65
     loc3 = 50
-    y1 = lambda x: gaussian(x, loc1, 3)*100
-    y2 = lambda x: gaussian(x, loc2, 3)*70
-    y3 = lambda x: gaussian(x, loc3, 5)*255*2/3.
+    y1 = lambda x: gaussian(x, loc1, 5)*130
+    y2 = lambda x: gaussian(x, loc2, 4)*55
+    y3 = lambda x: gaussian(x, loc3, 5)*180
 
     n1 = lambda x: gaussian(x, 29, 1)*50*0.44
-    n2 = lambda x: gaussian(x, 59, 1)*40*0.44
+    n2 = lambda x: gaussian(x, 58, 1)*40*0.44
 
     energy = lambda x: gaussian(x, 50, 100)*400
     ambient = lambda x: gaussian(x, 212, 60)*400
