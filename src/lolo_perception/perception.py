@@ -76,31 +76,41 @@ class Perception:
                                                        minRatio=0.2,
                                                        thresholdType=cv.THRESH_BINARY)
         """
-        
-        minArea = 20
+        res1080p = False
+        if res1080p:
+            minArea = 40
+            blurKernelSize = 11
+            localMaxKernelSize = 25
+        else:
+            minArea = 20
+            blurKernelSize = 5
+            localMaxKernelSize = 11
+
         minCircleExtent = 0.1 # 0.2
+        maxIntensityChange = 0.7
         self.areaScale = 3 # change to HATS when all areas > minArea*areaScale 
         self.hatsFeatureExtractor = ModifiedHATS(len(self.featureModel.features), 
                                                  peakMargin=0, # this should be zero if using MODE_VALLEY or MODE_PEAK
                                                  minArea=minArea, 
                                                  minRatio=minCircleExtent, # might not be good for outlier detection, convex hull instead?
-                                                 maxIntensityChange=0.7,
-                                                 blurKernelSize=5,
+                                                 maxIntensityChange=maxIntensityChange,
+                                                 blurKernelSize=blurKernelSize,
                                                  thresholdType=cv.THRESH_BINARY,
                                                  mode=hatsMode,
+                                                 ignorePeakAtMax=True,
                                                  showHistogram=False)
 
         # Use local peak finding to initialize and when light sources are small
         # This feature extractor sorts candidates based on intensity and then area
         p = .975
         self.peakFeatureExtractor = AdaptiveThresholdPeak(len(self.featureModel.features), 
-                                                          kernelSize=11, # 11 for 720p, 25 for 1080p
+                                                          kernelSize=localMaxKernelSize, # 11 for 720p, 25 for 1080p
                                                           pMin=p, #0.93 set pMin = pMax for fixed p
                                                           pMax=p, # 0.975
-                                                          maxIntensityChange=0.7,
+                                                          maxIntensityChange=maxIntensityChange,
                                                           minArea=minArea,
                                                           minCircleExtent=minCircleExtent,
-                                                          blurKernelSize=5,  # 5 for 720p, 11 for 1080p
+                                                          blurKernelSize=blurKernelSize,  # 5 for 720p, 11 for 1080p
                                                           ignorePAtMax=True,
                                                           maxIter=30)
         

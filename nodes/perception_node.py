@@ -160,9 +160,9 @@ class PerceptionNode:
                 timeStamp=timeStamp)
                 )
             # publish mahalanobis distance
-            if not dsPose.mahaDist:
+            if not dsPose.mahaDist and estDSPose:
                 dsPose.calcMahalanobisDist(estDSPose)
-            self.mahalanobisDistPub.publish(Float32(dsPose.mahaDist))
+                self.mahalanobisDistPub.publish(Float32(dsPose.mahaDist))
 
             if publishCamPose:
                 print("!!!Publishing cam pose with covariance!!!")
@@ -266,8 +266,6 @@ if __name__ == '__main__':
     #featureModelYaml = args.feature_model_yaml
     featureModelYamlPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "feature_models/{}".format(featureModelYaml))
     featureModel = FeatureModel.fromYaml(featureModelYamlPath)
-
-    
 
     perception = PerceptionNode(featureModel, hz, cvShow=cvShow, hatsMode=hatsMode)
     perception.run(poseFeedback=True, publishPose=True, publishCamPose=publishCamPose, publishImages=True)

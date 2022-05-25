@@ -2283,7 +2283,7 @@ class ModifiedHATS:
     MODE_PEAK = "peak"
     MODE_VALLEY = "valley"
     
-    def __init__(self, nFeatures, peakMargin=0, minArea=1, minRatio=0, maxIntensityChange=0.7, thresholdType=cv.THRESH_BINARY, blurKernelSize=5, mode="valley", showHistogram=False):
+    def __init__(self, nFeatures, peakMargin=0, minArea=1, minRatio=0, maxIntensityChange=0.7, thresholdType=cv.THRESH_BINARY, blurKernelSize=5, mode="valley", ignorePeakAtMax=False, showHistogram=False):
         """
         try cv.THRESH_OTSU?
         """
@@ -2301,6 +2301,7 @@ class ModifiedHATS:
 
         assert mode in (self.MODE_SIMPLE, self.MODE_PEAK, self.MODE_VALLEY), "Invalid mode '', must be '{}, {}' or '{}'".format(mode, self.MODE_SIMPLE, self.MODE_PEAK, self.MODE_VALLEY)
         self.mode = mode
+        self.ignorePeakAtMax = ignorePeakAtMax
         self.showHistogram = showHistogram
 
         self.img = np.zeros((10, 10)) # store the last processed image
@@ -2375,13 +2376,16 @@ class ModifiedHATS:
         
         histPeaks = list(histPeaks)
 
-        if len(histPeaks) > 0:
-            #if np.max(img) == 255:
-            #    self.threshold = 254
-            #else:
-            self.threshold = histPeaks.pop()-1
+        if self.ignorePeakAtMax and np.max(img) == 255:
+            self.threshold = 254
         else:
-            self.threshold = np.max(img)-1
+            if len(histPeaks) > 0:
+                #if np.max(img) == 255:
+                #    self.threshold = 254
+                #else:
+                self.threshold = histPeaks.pop()-1
+            else:
+                self.threshold = np.max(img)-1
 
         ret, imgTemp = cv.threshold(img, self.threshold, upper, self.thresholdType)
         _, contours, hier = cv.findContours(imgTemp, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
