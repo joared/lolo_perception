@@ -104,20 +104,30 @@ if __name__ == "__main__":
     yamlPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "feature_models/{}".format(featureModelYaml))
     fm = FeatureModel.fromYaml(yamlPath)
 
+    r = R.from_euler("XYZ", (-np.pi/2,0,0))
+    featurePoints = r.apply(fm.features)
+
     fig = plt.figure()
     ax = fig.gca(projection='3d')
-    ax.scatter(*zip(*fm.features))
-
-    for i, fp in enumerate(fm.features):
-        ax.text(fp[0], fp[1], fp[2], str(i), [1, 0, 0])
-
+    ax.scatter(*zip(*featurePoints))
 
     l = fm.maxRad
-    ax.plot([0, l], [0, 0], [0, 0], color="r")
-    ax.plot([0, 0], [0, l], [0, 0], color="g")
-    ax.plot([0, 0], [0, 0], [0, l], color="b")
+    xAxis = r.as_dcm()[:, 0]*l
+    yAxis = r.as_dcm()[:, 1]*l
+    zAxis = r.as_dcm()[:, 2]*l
+
+    ax.plot(*zip(xAxis, [0]*3), color="r")
+    ax.plot(*zip(yAxis, [0]*3), color="g")
+    ax.plot(*zip(zAxis, [0]*3), color="b")
+
+    for i, fp in enumerate(featurePoints):
+        ax.text(fp[0]+l*0.03, fp[1]+l*0.03, fp[2]+l*0.03, str(i), [0, 0, 0])
+
     size = l
     ax.set_xlim(-size, size)
     ax.set_ylim(-size, size)
     ax.set_zlim(-size, size)
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    ax.set_zticklabels([])
     plt.show()

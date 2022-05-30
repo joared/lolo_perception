@@ -12,7 +12,7 @@ from lolo_perception.perception_utils import plotAxis
 from lolo_perception.pose_estimation_utils import lmSolve, projectPoints2
 
 
-def lmSolveRoutine(objectPoints, detectedPoints, camera, tVec, rVec, tVecGuess, rVecGuess, jacType, ax, ax2, color="r", sigmaX=0, sigmaY=0):
+def lmSolveRoutine(objectPoints, detectedPoints, camera, tVec, rVec, tVecGuess, rVecGuess, jacType, ax, ax2, camCS, color="r", scale=1., sigmaX=0, sigmaY=0):
     cameraMatrix = camera.cameraMatrix
     if sigmaX != 0 or sigmaX != 0:
         detectedPoints[:, 0] += np.random.normal(0, sigmaX, detectedPoints[:, 0].shape)
@@ -33,16 +33,17 @@ def lmSolveRoutine(objectPoints, detectedPoints, camera, tVec, rVec, tVecGuess, 
                                                 generate=True,
                                                 verbose=1):
 
-        for imgP in detectedPoints:
-            imgP = imgP.round().astype(np.int32)
-            cv.circle(img, tuple(imgP), 3, (255,0,0), -1)
-        plotAxis(img, tVec, rVec, camera, objectPoints, scale=1)
 
         projPoints = projectPoints2(pose[:3], pose[3:], cameraMatrix, objectPoints)
         for p in projPoints:
             p = p.round().astype(np.int32)
-            cv.circle(img, tuple(p), 3, (255,0,255), -1)
-        plotAxis(img, pose[:3], pose[3:], camera, objectPoints, scale=1, opacity=0.002)
+            cv.circle(img, tuple(p), 3, (0,0,255), -1)
+        plotAxis(img, pose[:3], pose[3:], camera, objectPoints, color=(0,0,255), scale=scale, opacity=1)
+
+        for imgP in detectedPoints:
+            imgP = imgP.round().astype(np.int32)
+            cv.circle(img, tuple(imgP), 3, (0,255,0), -1)
+        plotAxis(img, tVec, rVec, camera, objectPoints, color=(0,255,0), scale=scale)
 
         ax2.cla()
         ax2.plot(errors)
@@ -52,19 +53,64 @@ def lmSolveRoutine(objectPoints, detectedPoints, camera, tVec, rVec, tVecGuess, 
 
         estCS.cs.translation = pose[:3]
         estCS.cs.rotation = R.from_rotvec(pose[3:]).as_dcm()
-        estCS.drawRelative(ax, camCS.cs, colors=(color,)*3, scale=0.5, alpha=0.5)
+        estCS.drawRelative(ax, camCS.cs, colors=("gray",)*3, scale=1, alpha=0.5)
 
         print(pose.round(2))
         cv.imshow("img", img)
         cv.waitKey(10)
-        plt.pause(1)
+        plt.pause(.1)
         img *= 0
+    
+    estCS.drawRelative(ax, camCS.cs, colors=(color,)*3, scale=1, alpha=1)
 
 def randomVec(rx, ry, rz):
 
     return np.array([(random.random()-0.5)*rx,
                     (random.random()-0.5)*ry,
                     (random.random()-0.5)*rz])
+
+def lmIllustration(cameraMatrix, objectPoints, tVec, rVec, tVecGuess, rVecGuess, jacType="opencv", sigmaX=0, sigmaY=0, scale=1):
+        detectedPoints = projectPoints2(tVec, rVec, cameraMatrix, objectPoints)
+
+        fig = plt.figure()
+        ax = fig.gca(projection='3d')
+        fig2 = plt.figure()
+        ax2 = fig2.gca()
+
+        maxZ = tVec[2]*1.2
+        ax.set_xlim(0, maxZ)
+        ax.set_ylim(0, maxZ)
+        ax.set_zlim(0, maxZ)
+
+        camCS = CoordinateSystemArtist(CoordinateSystem(translation=(maxZ/2, 0, maxZ/2), euler=(-np.pi/2, 0, 0)))
+        trueCS = CoordinateSystemArtist(CoordinateSystem(translation=tVec, euler=R.from_rotvec(rVec).as_euler("XYZ")))
+        camCS.draw(ax, colors=("b",)*3)
+        trueCS.drawRelative(ax, camCS.cs, colors=("g",)*3)
+
+        print(tVec, rVec)
+        lmSolveRoutine(objectPoints, 
+                    detectedPoints, 
+                    CameraDummy(cameraMatrix), 
+                    tVec, 
+                    rVec, 
+                    tVecGuess, 
+                    rVecGuess, 
+                    jacType, 
+                    ax, 
+                    ax2, 
+                    camCS,
+                    color="r", 
+                    sigmaX=sigmaX, 
+                    sigmaY=sigmaY,
+                    scale=scale)
+
+        while True:
+            plt.pause(0.01)
+            key = cv.waitKey(10)
+            if key == ord("q"):
+                break
+        cv.destroyAllWindows()
+
 
 if __name__ =="__main__":
     from lolo_perception.feature_model import polygon
@@ -76,14 +122,16 @@ if __name__ =="__main__":
             self.distCoeffs = np.zeros((1,4), dtype=np.float32)
 
     # Square
-    objectPoints = np.array([[1., 1., 0], [-1., 1., 0], [1., -1., 0], [-1., -1., 0]])
+    #objectPoints = np.array([[1., 1., 0], [-1., 1., 0], [1., -1., 0], [-1., -1., 0]])*0.3
     # Assymteric planar
-    objectPoints = np.array([[1., 1., 0], [-1., 1., 0], [1., -1., 0], [-.0, -.0, 0.9]])
+    #objectPoints = np.array([[1., 1., 0], [-1., 1., 0], [1., -1., 0], [-.0, -.0, 0.9]])
     # symmetric planar polygon
     #objectPoints = np.array(polygon(1, 8, shift=False, zShift=0)[:, :-1])
     # 5 Lights
-    #objectPoints = np.array([[1., 1., 0], [-1., 1., 0], [1., -1., 0], [-1., -1., 0], [0., -.0, -5]])
+    objectPoints = np.array([[1., 1., 0], [-1., 1., 0], [1., -1., 0], [-1., -1., 0], [0., -.0, -.5]])*.33
     
+    
+
     # Difficult pose
     tVec = np.array([-5., -5., 25.])
     rVec = R.from_euler("YXZ", (np.deg2rad(-110), np.deg2rad(90), np.deg2rad(90))).as_rotvec()
@@ -95,10 +143,20 @@ if __name__ =="__main__":
                              [0., f, 359.],
                              [0., 0., 1]])
 
+    np.random.seed(123456)
+    lmIllustration(cameraMatrix, 
+                   objectPoints, 
+                   np.array([0., 0., 12]), 
+                   np.array([0., np.deg2rad(30), 0.]),
+                   np.array([0., 0., 1.]),
+                   np.array([0., np.deg2rad(-160), 0.]),
+                   sigmaX=2,
+                   sigmaY=2,
+                   scale=0.3)
+    exit()
+
     success = {"opencvTrue":0, "opencv":0, "local":0, "global":0}
-
     maxZ = 25.0
-
 
     failedPoses = []
     for i in range(300):
@@ -180,6 +238,7 @@ if __name__ =="__main__":
                     jacType, 
                     ax, 
                     ax2, 
+                    camCS,
                     color="r", 
                     sigmaX=0, 
                     sigmaY=0)

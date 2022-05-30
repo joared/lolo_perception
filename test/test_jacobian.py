@@ -14,13 +14,13 @@ class CameraDummy:
 if __name__ == "__main__":
     centerPoint = np.array([0., 0., -1.])
     objectPoints = np.array([centerPoint, [-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0]])*0.5
-    #objectPoints = np.array([[-1., -1., 0.], [1., -1., 0.], [1., 1., 0.], [-1., 1., 0.]])
+    objectPoints = np.array([[-1., -1., 0.], [1., -1., 0.], [1., 1., 0.], [-1., 1., 0.]])*0.5
     #objectPoints = np.array([[1., 2., -1.]])
     tVec = np.array([1., -1., 5.])
     rVec = np.array([0.1, np.pi/3, -0.3])
 
-    #tVec = np.array([0., 0., 10.])*0.5
-    #rVec = np.array([0, 0, 0.])
+    tVec = np.array([0., 0., 10.])*0.5
+    rVec = np.array([0, 0, 0.])
 
     #rVec = np.array([0.1, 0, -0.3])
     #rVec = np.array([0, np.pi, 0])
@@ -94,9 +94,12 @@ if __name__ == "__main__":
 
     plotAxis(img, tVec, rVec, camera, objectPoints, scale=1, color=None, thickness=2, opacity=1)
 
-    print(np.linalg.inv(np.matmul(jacobian.transpose(), jacobian).round(2)))
-    print(np.matmul(jacobian.transpose(), jacobian).round(2))
+    Jmult = np.matmul(jacobian.transpose(), jacobian).round(2)
+    H = np.linalg.inv(np.matmul(jacobian.transpose(), jacobian).round(2))
+    print(H)
+    print(Jmult)
     print(np.linalg.matrix_rank(jacobian))
+    print(np.linalg.eig(Jmult))
 
 
     cv.imshow("img", img)

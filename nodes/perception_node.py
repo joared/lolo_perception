@@ -11,6 +11,7 @@ from std_msgs.msg import Float32
 import time
 import numpy as np
 import itertools
+import matplotlib.pyplot as plt
 
 from lolo_perception.feature_extraction import featureAssociation, AdaptiveThreshold2, AdaptiveThresholdPeak
 from lolo_perception.pose_estimation import DSPoseEstimator
@@ -187,7 +188,7 @@ class PerceptionNode:
             # otherwise we publish all candidates
             self.associatedImagePointsPublisher.publish(lightSourcesToMsg(candidates, timeStamp=timeStamp))
 
-        return dsPose, poseAquired
+        return dsPose, poseAquired, candidates
 
     def run(self, poseFeedback=True, publishPose=True, publishCamPose=False, publishImages=True):
         rate = rospy.Rate(self.hz)
@@ -198,7 +199,7 @@ class PerceptionNode:
         estDSPose = None
 
         while not rospy.is_shutdown():
-
+            
             if self.imageMsg:
                 try:
                     imgColor = self.bridge.imgmsg_to_cv2(self.imageMsg, 'bgr8')
@@ -210,7 +211,8 @@ class PerceptionNode:
 
                     self.imageMsg = None
                     (dsPose,
-                     poseAquired) = self.update(imgColor, 
+                     poseAquired,
+                     candidates) = self.update(imgColor, 
                                                 estDSPose=estDSPose, 
                                                 publishPose=publishPose, 
                                                 publishCamPose=publishCamPose,

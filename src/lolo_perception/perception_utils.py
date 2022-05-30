@@ -265,7 +265,7 @@ def plotAxis(img, translationVector, rotationVector, camera, points, scale, colo
                                  camera.distCoeffs)
 
     center = center[0][0][0], center[0][0][1]   
-    for d, c in zip((xDir, yDir, zDir), ((0,0,255*opacity), (0,255*opacity,0), (255*opacity,0,0))):
+    for d, c in zip((zDir, yDir, xDir), ((255*opacity,0,0), (0,255*opacity,0), (0,0,255*opacity))):
         cx = center[0]
         cy = center[1]
         point1 = (int(round(cx)), int(round(cy)))

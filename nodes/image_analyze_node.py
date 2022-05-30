@@ -1201,8 +1201,6 @@ class ImageAnalyzeNode:
 if __name__ == "__main__":
     rospy.init_node("image_analyze_node")
 
-    
-
     datasetPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "image_dataset")
     labelFile = "labels.txt"
 
@@ -1213,17 +1211,17 @@ if __name__ == "__main__":
 
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/contour.yaml")
     #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/171121/171121_straight_test.MP4")
-    videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/171121/171121_straight_test_reversed.mkv")
+    #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/171121/171121_straight_test_reversed.mkv")
     #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/171121/171121_angle_test.MP4")
     #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/FILE0197.MP4")
-    #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/271121/271121_5planar_1080p.MP4")
-    imgLabelNode.analyzeVideoImages(datasetPath, labelFile, videoPath, startFrame=200, analyzeImages=False)
+    videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/271121/271121_5planar_1080p.MP4")
+    imgLabelNode.analyzeVideoImages(datasetPath, labelFile, videoPath, startFrame=100, analyzeImages=False)
 
     # DoNN dataset
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/donn_camera.yaml")
     videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "image_dataset/dataset_recovery/donn.mp4")
     datasetRecovery = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "image_dataset/dataset_recovery")
-    #imgLabelNode.analyzeVideoImages(datasetRecovery, "donn.txt", videoPath, startFrame=1629, analyzeImages=True, test=False)
+    #imgLabelNode.analyzeVideoImages(datasetRecovery, "donn.txt", videoPath, startFrame=1, analyzeImages=False, test=False)
 
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/usb_camera_720p_sim.yaml")
     rosbagFile = "sim_bag.bag"
@@ -1233,7 +1231,7 @@ if __name__ == "__main__":
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/usb_camera_720p_8.yaml")
     rosbagFile = "ice.bag"
     rosbagPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), join("rosbags", rosbagFile))
-    #imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "lolo_camera/image_raw", startFrame=615, analyzeImages=True)
+    #imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "lolo_camera/image_raw", startFrame=1200, analyzeImages=True)
     
 
     
