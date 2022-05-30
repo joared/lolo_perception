@@ -303,7 +303,11 @@ class DSPose:
         #return True # TODO: remove
         #return self.validReprError_old_reprojection() # old version
         for err, pCov in zip(self.reprErrors, self.pixelCovariances):
-            pCovInv = np.linalg.inv(pCov)
+            try:
+                pCovInv = np.linalg.inv(pCov)
+            except np.linalg.LinAlgError as e:
+                print("Singular image covariance matrix")
+                return False
             mahaDistSquare = np.matmul(np.matmul(err.transpose(), pCovInv), err)
             if mahaDistSquare > self.chiSquaredConfidence:
                 return False
