@@ -1,5 +1,3 @@
-from ast import Mod
-from concurrent.futures import process
 import cv2 as cv
 import time
 import numpy as np
@@ -76,7 +74,7 @@ class Perception:
                                                        minRatio=0.2,
                                                        thresholdType=cv.THRESH_BINARY)
         """
-        res1080p = False
+        res1080p = True
         if res1080p:
             minArea = 40
             blurKernelSize = 11
@@ -119,15 +117,15 @@ class Perception:
 
         # max additional light source candidates that will be considered by 
         # the feature extractor.
-        # 6 gives a minimum frame rate of about 0.3 when all 
+        # 6 gives a minimum frame rate of about 1 when all 
         # combinations of candidates are iterated over
         self.maxAdditionalCandidates = 6 # 6
 
         # margin of the region of interest when pose has been aquired
         self.roiMargin = int(round(0.0626*self.camera.cameraMatrix[0, 0])) # Adapted so that fx = 1400 -> roiMargin = 87.64
-        
+
         # Pose estimator that calculates poses from detected light sources
-        initPoseEstimationFlag = cv.SOLVEPNP_ITERATIVE
+        initPoseEstimationFlag = cv.SOLVEPNP_ITERATIVE # cv.SOLVEPNP_ITERATIVE or cv.SOLVEPNP_EPNP 
         poseEstimationFlag = cv.SOLVEPNP_ITERATIVE
         self.poseEstimator = DSPoseEstimator(self.camera, 
                                              self.featureModel,

@@ -265,9 +265,10 @@ if __name__ == '__main__':
     cvShow = rospy.get_param("~cv_show")
     publishCamPose = rospy.get_param("~publish_cam_pose")
     hatsMode = rospy.get_param("~hats_mode")
+    poseFeedBack = rospy.get_param("~pose_feedback")
     #featureModelYaml = args.feature_model_yaml
     featureModelYamlPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "feature_models/{}".format(featureModelYaml))
     featureModel = FeatureModel.fromYaml(featureModelYamlPath)
 
     perception = PerceptionNode(featureModel, hz, cvShow=cvShow, hatsMode=hatsMode)
-    perception.run(poseFeedback=True, publishPose=True, publishCamPose=publishCamPose, publishImages=True)
+    perception.run(poseFeedback=poseFeedBack, publishPose=True, publishCamPose=publishCamPose, publishImages=True)
