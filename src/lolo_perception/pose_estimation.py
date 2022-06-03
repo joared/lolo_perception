@@ -296,10 +296,10 @@ class DSPose:
                 return False
         return True
 
-    def validReprError(self):
+    def validReprError(self, minThreshold=0.7071):
         if self.reprErrors is None or self.pixelCovariances is None:
             self.calcRMSE()
-
+        
         #return True # TODO: remove
         #return self.validReprError_old_reprojection() # old version
         for err, pCov in zip(self.reprErrors, self.pixelCovariances):
@@ -308,6 +308,10 @@ class DSPose:
             except np.linalg.LinAlgError as e:
                 print("Singular image covariance matrix")
                 return False
+
+            if np.linalg.norm(err) < minThreshold:
+                continue
+
             mahaDistSquare = np.matmul(np.matmul(err.transpose(), pCovInv), err)
             if mahaDistSquare > self.chiSquaredConfidence:
                 return False
