@@ -77,12 +77,12 @@ class Perception:
         res1080p = True
         if res1080p:
             minArea = 40
-            blurKernelSize = 11
-            localMaxKernelSize = 25
+            blurKernelSize = 11 # 11
+            localMaxKernelSize = 11 # 25
         else:
             minArea = 20
             blurKernelSize = 5
-            localMaxKernelSize = 11
+            localMaxKernelSize = 5 # 11
 
         minCircleExtent = 0.1 # 0.2
         maxIntensityChange = 0.7
@@ -100,17 +100,19 @@ class Perception:
 
         # Use local peak finding to initialize and when light sources are small
         # This feature extractor sorts candidates based on intensity and then area
-        p = .975
+        pMin = .8
+        pMax = .975
+        maxIter = 30
         self.peakFeatureExtractor = AdaptiveThresholdPeak(len(self.featureModel.features), 
                                                           kernelSize=localMaxKernelSize, # 11 for 720p, 25 for 1080p
-                                                          pMin=p, #0.93 set pMin = pMax for fixed p
-                                                          pMax=p, # 0.975
+                                                          pMin=pMin, #0.93 set pMin = pMax for fixed p
+                                                          pMax=pMax, # 0.975
                                                           maxIntensityChange=maxIntensityChange,
                                                           minArea=minArea,
                                                           minCircleExtent=minCircleExtent,
                                                           blurKernelSize=blurKernelSize,  # 5 for 720p, 11 for 1080p
                                                           ignorePAtMax=True,
-                                                          maxIter=30)
+                                                          maxIter=maxIter)
         
         # start with peak
         self.featureExtractor = self.peakFeatureExtractor
@@ -123,16 +125,18 @@ class Perception:
 
         # margin of the region of interest when pose has been aquired
         self.roiMargin = int(round(0.0626*self.camera.cameraMatrix[0, 0])) # Adapted so that fx = 1400 -> roiMargin = 87.64
+        self.roiMargin *= 2
 
         # Pose estimator that calculates poses from detected light sources
-        initPoseEstimationFlag = cv.SOLVEPNP_ITERATIVE # cv.SOLVEPNP_ITERATIVE or cv.SOLVEPNP_EPNP 
-        poseEstimationFlag = cv.SOLVEPNP_ITERATIVE
+        initPoseEstimationFlag = cv.SOLVEPNP_EPNP # cv.SOLVEPNP_ITERATIVE or cv.SOLVEPNP_EPNP 
+        poseEstimationFlag = cv.SOLVEPNP_EPNP
         self.poseEstimator = DSPoseEstimator(self.camera, 
                                              self.featureModel,
                                              ignoreRoll=False, 
                                              ignorePitch=False,
                                              initFlag=initPoseEstimationFlag, 
-                                             flag=poseEstimationFlag)
+                                             flag=poseEstimationFlag,
+                                             refine=True)
 
         # valid orientation range [yawMinMax, pitchMinMax, rollMinMax]. Currently not used to disregard
         # invalid poses, but the axis and region of interest will be shown in red when a pose has 
@@ -330,8 +334,8 @@ class Perception:
                 elif self.featureExtractor == self.peakFeatureExtractor:
                     # sort by summed intensity
                     # TODO: not sure how much this improves
-                    lightCandidateCombinations.sort(key=lambda comb: (sum([ls.intensity for ls in comb]), sum([ls.area for ls in comb])), reverse=True)
-                    #lightCandidateCombinations.sort(key=lambda comb: sum([ls.intensity for ls in comb]), reverse=True)
+                    #lightCandidateCombinations.sort(key=lambda comb: (sum([ls.intensity for ls in comb]), sum([ls.area for ls in comb])), reverse=True)
+                    lightCandidateCombinations.sort(key=lambda comb: (sum([ls.intensity for ls in comb]), sum([ls.circleExtent() for ls in comb])), reverse=True)
                 else:
                     # using some other 
                     print("sorting by intensity, then area")
@@ -394,6 +398,8 @@ class Perception:
             poseEstMethod = "L-M"
         elif poseEstFlag == cv.SOLVEPNP_EPNP:
             poseEstMethod = "EPnP"
+            if self.poseEstimator.refine:
+                poseEstMethod += "+L-M"
         else:
             poseEstMethod = poseEstFlag
             

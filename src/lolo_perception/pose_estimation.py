@@ -450,7 +450,8 @@ class DSPoseEstimator:
                  ignoreRoll=False, 
                  ignorePitch=False, 
                  initFlag=cv.SOLVEPNP_EPNP,
-                 flag=cv.SOLVEPNP_ITERATIVE):
+                 flag=cv.SOLVEPNP_ITERATIVE,
+                 refine=False):
 
         self.camera = camera
         self.featureModel = featureModel
@@ -461,8 +462,116 @@ class DSPoseEstimator:
         
         self.initFlag = initFlag
         self.flag = flag
+        self.refine = refine
+
+    def _estimatePoseEPnP(self, featurePoints, associatedPoints):
+        associatedPoints = associatedPoints.reshape((len(associatedPoints), 1, 2))
+            
+        # On axis-angle: https://en.wikipedia.org/wiki/Axis%E2%80%93angle_representation#Relationship_to_other_representations
+        success, rotationVector, translationVector = cv.solvePnP(featurePoints,
+                                                                associatedPoints,
+                                                                self.camera.cameraMatrix,
+                                                                self.camera.distCoeffs,
+                                                                useExtrinsicGuess=False,
+                                                                tvec=None,
+                                                                rvec=None,
+                                                                flags=cv.SOLVEPNP_EPNP)
+        return success, translationVector, rotationVector
+
+    def _estimatePoseLM(self, featurePoints, associatedPoints, guessTrans, guessRot):
+        guessTrans = guessTrans.copy().reshape((3, 1))
+        guessRot = guessRot.copy().reshape((3, 1))
+        success, rotationVector, translationVector = cv.solvePnP(featurePoints,
+                                                                 associatedPoints,
+                                                                 self.camera.cameraMatrix,
+                                                                 self.camera.distCoeffs,
+                                                                 useExtrinsicGuess=True,
+                                                                 tvec=guessTrans,
+                                                                 rvec=guessRot,
+                                                                 flags=cv.SOLVEPNP_ITERATIVE)
+        return success, translationVector, rotationVector
+
+    def _estimatePose(self, 
+                      associatedPoints,
+                      estTranslationVec=None,
+                      estRotationVec=None):
+
+        featurePoints = np.array(list(self.featureModel.features[:, :3]))
+
+        flag = self.flag
+        if estTranslationVec is None:
+            flag = self.initFlag
+
+
+        if flag in ("opencv", "local", "global"):
+            success = True
+            pose = lmSolve(self.camera.cameraMatrix, 
+                            associatedPoints, 
+                            featurePoints, 
+                            tVec=estTranslationVec, 
+                            rVec=estRotationVec, 
+                            jacobianCalc=self.flag,
+                            maxIter=50,
+                            mode="lm",
+                            generate=False,
+                            verbose=0).next()[0]
+            translationVector, rotationVector = np.reshape(pose[:3], (3,1)), np.reshape(pose[3:], (3,1))
+        
+        elif flag == cv.SOLVEPNP_EPNP:
+            success, translationVector, rotationVector = self._estimatePoseEPnP(featurePoints, associatedPoints)
+            if self.refine:
+                success, translationVector, rotationVector = self._estimatePoseLM(featurePoints, associatedPoints, translationVector, rotationVector)
+
+        elif flag == cv.SOLVEPNP_ITERATIVE:
+            if estRotationVec is None:
+                estTranslationVec = np.array([0., 0., 1.])
+                estRotationVec = np.array([0., 0., 0.])
+            success, translationVector, rotationVector = self._estimatePoseLM(featurePoints, associatedPoints, estTranslationVec, estRotationVec)
+            
+        else:
+            raise Exception("Invalid pose estimation flag {}".format(flag))
+
+        return success, translationVector, rotationVector
 
     def estimatePose(self, 
+                     associatedLightSources, 
+                     estTranslationVec=None, 
+                     estRotationVec=None):
+        """
+        featurePoints - points of the feature model
+        associatedPoints - detected and associated points in the image
+        pointCovariance - uncertainty of the detected points
+        """
+        associatedPoints = np.array([ls.center for ls in associatedLightSources], dtype=np.float32)
+        success, translationVector, rotationVector = self._estimatePose(associatedPoints, estTranslationVec, estRotationVec)
+                                                                 
+        if not success:
+            print("Pose estimation failed, no solution")
+            return 
+
+        translationVector = translationVector[:, 0]
+        rotationVector = rotationVector[:, 0]
+        
+        ay, ax, az = R.from_rotvec(rotationVector).as_euler("YXZ")
+        if self.ignorePitch:
+            ax = 0
+        if self.ignoreRoll:
+            az = 0
+        self.rotationVector = R.from_euler("YXZ", (ay, ax, az)).as_rotvec()
+
+        rotMat = R.from_rotvec(self.rotationVector).as_dcm()
+        camTranslationVector = np.matmul(rotMat.transpose(), -translationVector)
+        camRotationVector = R.from_dcm(rotMat.transpose()).as_rotvec()
+
+        return DSPose(translationVector, 
+                      rotationVector, 
+                      camTranslationVector,
+                      camRotationVector,
+                      associatedLightSources,
+                      self.camera,
+                      self.featureModel)
+
+    def _old_estimatePose(self, 
                      associatedLightSources, 
                      estTranslationVec=None, 
                      estRotationVec=None):
@@ -507,14 +616,8 @@ class DSPoseEstimator:
                                                                         rvec=guessRot,
                                                                         flags=self.flag)
         else:
-            #xGuess, yGuess = np.mean(associatedPoints, axis=0)
-            #guessTrans = np.array([xGuess, yGuess, 5.]) # This does not work well for planar config at close ranges
             guessTrans = np.array([0., 0., 1.])
             guessRot = np.array([0., 0., 0.])
-            #if xGuess > 0:
-            #    guessRot = np.array([0., -0.5, 0.])
-            #else:
-            #    guessRot = np.array([0., 0.5, 0.])
 
             if self.initFlag in ("opencv", "local", "global"):
                 success = True
@@ -543,6 +646,7 @@ class DSPoseEstimator:
                                                                         tvec=guessTrans.reshape((3,1)),
                                                                         rvec=guessRot.reshape((3,1)),
                                                                         flags=self.initFlag)
+
                                                                  
         if not success:
             print("Pose estimation failed, no solution")

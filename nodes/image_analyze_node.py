@@ -17,7 +17,7 @@ from geometry_msgs.msg import PoseArray
 
 from lolo_perception.camera_model import Camera
 from lolo_perception.perception_ros_utils import readCameraYaml, msgToImagePoints
-from lolo_perception.feature_extraction import MeanShiftTracker, LightSourceTracker, RCFS, RCF, findPeakContourAt, circularKernel, LightSourceTrackInitializer, localMax
+from lolo_perception.feature_extraction import contourRatio, MeanShiftTracker, LightSourceTracker, RCFS, RCF, findPeakContourAt, circularKernel, LightSourceTrackInitializer, localMax, localMaxSupressed, localMaxSupressed2, localMaxChange, removeContoursOnEdges
 from lolo_perception.perception_utils import plotHistogram, imageROI, regionOfInterest
 
 # for _analyzeImage
@@ -567,23 +567,64 @@ class ImageAnalyzeNode:
         return img
 
     def _analyzeImage(self, imgRect, nFeatures, mask=None):
-        kernel = circularKernel(11)
+        kernel = circularKernel(7)
         gray = cv.cvtColor(imgRect, cv.COLOR_BGR2GRAY)
+        
         img = imgRect.copy()
-        g = GradientFeatureExtractor(None, 1337, 3)
-        cv.imshow("gray", cv.resize(gray, (1280,720)))
+        g = GradientFeatureExtractor(None, 1337, 5)
+        cv.imshow("gray", gray)
         gradImg = g(gray)
-
+        _, gradImg = cv.threshold(gradImg, self.analyzeThreshold, 255, cv.THRESH_BINARY)
         cv.imshow("grad image", gradImg)
+
+        """
+        # LoG
+        blobRadius = 10
+        sigma = (blobRadius-1.0)/3.0
+        ksize = int(round(sigma*6))
+        if ksize % 2 == 0:
+            ksize += 1
+        print("Sigma", sigma)
+        print("ksize", ksize)
+        blurred = cv.GaussianBlur(gray, (ksize,ksize), sigma)
+        dst = cv.Laplacian(blurred, ddepth=cv.CV_16S, ksize=3)
+        dst = cv.convertScaleAbs(dst, alpha=255./dst.max())
+        _, logThresh = cv.threshold(dst, self.analyzeThreshold, 256, cv.THRESH_BINARY)
+        cv.imshow("blurred", blurred)
+        cv.imshow("log", dst)
+        cv.imshow("log thresh", logThresh)
+        #dst[np.where(blurred == 255)] = 255
+        """
+        
+        _, grayThreholded = cv.threshold(gray, self.analyzeThreshold, 255, cv.THRESH_BINARY)
         #blurred = cv.GaussianBlur(gray, (5,5), 0)
-        localMaxImg = localMax(gray, circularKernel(1))
+        
+        localMaxImg = localMax(gray, circularKernel(11))
+        ksize = 25
+        blurred = cv.GaussianBlur(gray, (ksize,ksize), 0)
+        p = .8
+        localMaxImg = localMaxChange(blurred, circularKernel(ksize), p)
 
+        _, localMaxImg = cv.threshold(localMaxImg, self.analyzeThreshold, 256, cv.THRESH_TOZERO)
+        #localMaxSup = cv.GaussianBlur(localMaxSup, (11,11), 0)
+        
+        #localMaxSup = cv.GaussianBlur(localMaxSup, (11,11), 0)
         cv.imshow("local max", localMaxImg)
-        _, localMaxThresholded = cv.threshold(localMaxImg, self.analyzeThreshold, 256, cv.THRESH_BINARY)
-        cv.imshow("local max thresholded", localMaxThresholded)
 
-        _, grayThreholded = cv.threshold(gray, self.analyzeThreshold, 256, cv.THRESH_BINARY)
-        cv.imshow("thresholded", grayThreholded)
+        #cv.imshow("local max thresholded", localMaxThresholded)
+        #cv.imshow("thresholded", grayThreholded)
+        return grayThreholded
+        
+        
+        cv.imshow("erosion binary", cv.erode(grayThreholded, kernel))
+        cv.imshow("erosion gray", cv.erode(gray, kernel))
+
+        cv.imshow("dilation binary", cv.dilate(grayThreholded, kernel))
+        cv.imshow("dilation gray", cv.dilate(gray, kernel))
+  
+        cv.imshow("opening binary", cv.morphologyEx(grayThreholded, cv.MORPH_OPEN, kernel))
+        cv.imshow("opening gray", cv.morphologyEx(gray, cv.MORPH_OPEN, kernel))
+
         #imgROI = imageROI(img, margin=80)
         #plotHistogram(imgRect, )
         return img
@@ -1211,17 +1252,17 @@ if __name__ == "__main__":
 
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/contour.yaml")
     #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/171121/171121_straight_test.MP4")
-    #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/171121/171121_straight_test_reversed.mkv")
+    videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/171121/171121_straight_test_reversed.mkv")
     #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/171121/171121_angle_test.MP4")
     #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/FILE0197.MP4")
-    videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/271121/271121_5planar_1080p.MP4")
-    imgLabelNode.analyzeVideoImages(datasetPath, labelFile, videoPath, startFrame=100, analyzeImages=False)
+    #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/271121/271121_5planar_1080p.MP4")
+    imgLabelNode.analyzeVideoImages(datasetPath, labelFile, videoPath, startFrame=400, analyzeImages=False)
 
     # DoNN dataset
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/donn_camera.yaml")
     videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "image_dataset/dataset_recovery/donn.mp4")
     datasetRecovery = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "image_dataset/dataset_recovery")
-    #imgLabelNode.analyzeVideoImages(datasetRecovery, "donn.txt", videoPath, startFrame=1, analyzeImages=False, test=False)
+    #imgLabelNode.analyzeVideoImages(datasetRecovery, "donn.txt", videoPath, startFrame=1391, analyzeImages=True, test=False)
 
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/usb_camera_720p_sim.yaml")
     rosbagFile = "sim_bag.bag"
@@ -1231,7 +1272,7 @@ if __name__ == "__main__":
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/usb_camera_720p_8.yaml")
     rosbagFile = "ice.bag"
     rosbagPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), join("rosbags", rosbagFile))
-    #imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "lolo_camera/image_raw", startFrame=1200, analyzeImages=True)
+    #imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "lolo_camera/image_raw", startFrame=1200, analyzeImages=False)
     
 
     

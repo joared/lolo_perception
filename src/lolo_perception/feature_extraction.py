@@ -604,6 +604,36 @@ def localMax(gray, kernel):
     localMaxImg = cv.bitwise_and(gray, gray, mask=eqMask)
     return localMaxImg
 
+def localMaxSupressed2(gray, kernel, p):
+    seed = gray*p
+    seed = seed.astype(np.uint8)
+    dilated = cv.dilate(seed, kernel, borderValue=0, iterations=1)
+    eqMask = cv.compare(gray, dilated, cv.CMP_GE)
+    localMaxImg = cv.bitwise_and(gray, gray, mask=eqMask)
+    return localMaxImg
+
+def localMaxSupressed(gray, kernel, p):
+    gray = gray*p
+    gray = gray.astype(np.uint8)
+    dilated = cv.dilate(gray, kernel, borderValue=0, iterations=1)
+    eqMask = cv.compare(gray, dilated, cv.CMP_GE)
+    localMaxImg = cv.bitwise_and(gray, gray, mask=eqMask)
+    return localMaxImg
+
+def localMaxChange(gray, kernel, p):
+    dilated = cv.dilate(gray, kernel, borderValue=255, iterations=1)
+    eroded = cv.erode(gray, kernel, borderValue=255, iterations=1)
+    if p < 1:
+        # Percentage threshold
+        dilatedSupressed = dilated.astype(np.float32)*p
+    else:
+        # Fixed threshold
+        dilatedSupressed = dilated-p
+    dilatedSupressed = dilatedSupressed.astype(np.uint8)
+    eqMask = cv.compare(dilatedSupressed, eroded, cv.CMP_GE)
+    localMaxImg = cv.bitwise_and(gray, gray, mask=eqMask)
+    return localMaxImg
+
 def localMin(gray, kernel):
     dilated = cv.erode(gray, kernel, borderValue=0, iterations=1)
     eqMask = cv.compare(gray, dilated, cv.CMP_EQ)
@@ -677,17 +707,6 @@ def findPeakContourAt(gray, center, offset=None, mode=cv.RETR_EXTERNAL):
     else:
         return None
 
-    """
-    cv.drawContours(img, [foundCnt], 0, (255, 0, 0), -1)
-    if cv.contourArea(foundCnt) < 10:
-        ratioThresh = 0.2
-    else:
-        ratioThresh = 0.5
-    color = (255, 0, 0)
-    if contourRatio(foundCnt) < ratioThresh:
-        color = (0, 0, 255)
-    drawInfo(img, (cx+20, cy-20), str(contourRatio(foundCnt)), color=color)
-    """
     return foundCnt, foundCntOffset
 
 def findMaxPeakAt(gray, center, p):
@@ -771,6 +790,11 @@ def findMaxPeaks(gray, p, drawImg=None):
 
     return peakCenters, peakContours
 
+def pDecay(b, pMin, pMax, I, IMax=255.):
+    assert 1-(pMax-pMin)/b > 0, "Invalid value of b, (b >={})".format(pMax-pMin)
+    c = -1./255*np.log(1-(pMax-pMin)/b)
+    return pMin + b*(1-np.exp(-c*I))
+
 
 def findNPeaks2(gray, kernel, pMin, pMax, n, minThresh=0, margin=1, ignorePAtMax=True, offset=(0,0), maxIter=10000000, drawImg=None, drawInvalidPeaks=False):
     peaksDilation = localMax(gray, kernel) # local max
@@ -779,13 +803,12 @@ def findNPeaks2(gray, kernel, pMin, pMax, n, minThresh=0, margin=1, ignorePAtMax
     grayMasked = gray.copy()
     peaksDilationMasked = peaksDilation.copy()
     maxIntensity = np.inf
-    #_, grayThreholded = cv.threshold(gray, maxIntensity-1, 256, cv.THRESH_TOZERO) # possibly faster thresholding first
     peakCenters = []
     peakContours = []
 
     iterations = 0
     while True:
-        if np.max(peaksDilationMasked) != maxIntensity: 
+        if np.max(peaksDilationMasked) != maxIntensity:
             if len(peakCenters) >= n:
                 print("Found {} peaks, breaking".format(n))
                 break
@@ -798,7 +821,8 @@ def findNPeaks2(gray, kernel, pMin, pMax, n, minThresh=0, margin=1, ignorePAtMax
                     threshold = 254
                     #threshold = 251 # TODO: maybe another value is more suitable?
                 else:
-                    pTemp = maxIntensity/255.*(pMax-pMin) + pMin
+                    #pTemp = maxIntensity/255.*(pMax-pMin) + pMin
+                    pTemp = pDecay(.175, pMin, pMax, I=maxIntensity)
                     threshold = int(pTemp*maxIntensity - 1)
 
                 ret, threshImg = cv.threshold(grayMasked, threshold, 256, cv.THRESH_BINARY)
@@ -813,6 +837,10 @@ def findNPeaks2(gray, kernel, pMin, pMax, n, minThresh=0, margin=1, ignorePAtMax
         if cntPeak is None:
             print("Something went wrong?!")
             break
+
+        # TODO: Check if contour includes the threshold value.
+        # If it doesn't, we can probably break here (noise).
+        # TODO: Check convexity. Non-convex shapes are probably not light sources
 
         # Check if contour is on edge
         cnts = [cntPeak]
@@ -2440,7 +2468,7 @@ class ModifiedHATS:
         ########### plot peaks ##############
         if self.showHistogram:
             plt.cla()
-            N = 50
+            N = 150
             grayROI = cv.GaussianBlur(grayROI, (self.blurKernelSize,self.blurKernelSize), self.sigma)
             grayFull = cv.GaussianBlur(grayFull, (self.blurKernelSize,self.blurKernelSize), self.sigma)
             plotHistogram(grayFull, N=N, highlightPeak=self.threshold, facecolor="b")
@@ -2519,10 +2547,10 @@ class AdaptiveThresholdPeak:
         # blurring seems to help for large resolution 
         # test_sessions/171121_straight_test.MP4
         if self.blurKernelSize > 0:
-            gray = cv.GaussianBlur(gray, (self.blurKernelSize,self.blurKernelSize), 0) 
+            gray = cv.GaussianBlur(gray, (self.blurKernelSize,self.blurKernelSize), 0)
+            #gray = cv.medianBlur(gray, self.blurKernelSize) 
 
         #peakMargin = 0 # TODO: should work with 0 but needs proper testing
-        
         (peakDilationImg, 
         peaksDilationMasked, 
         peakCenters, 
