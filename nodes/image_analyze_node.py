@@ -12,7 +12,7 @@ import rospy
 import rospkg
 import rosbag
 from cv_bridge import CvBridge
-from sensor_msgs.msg import Image, CameraInfo
+from sensor_msgs.msg import Image, CompressedImage, CameraInfo
 from geometry_msgs.msg import PoseArray
 
 from lolo_perception.camera_model import Camera
@@ -315,7 +315,7 @@ class LightSourceTrackAnalyzer:
     def __init__(self):
         cv.imshow("Light source tracking", np.zeros((10,10)))
         cv.setMouseCallback("Light source tracking", self._click)
-        self.lsTracker = LightSourceTrackInitializer(radius=50, maxPatchRadius=100, minPatchRadius=20, maxMovement=50)
+        self.lsTracker = LightSourceTrackInitializer(radius=50, maxPatchRadius=100, minPatchRadius=55, maxMovement=50)
         self._newTrackerCenters = []
         self._gray = None
 
@@ -343,8 +343,6 @@ class LightSourceTrackAnalyzer:
 
 class RCFAnalyzer:
     def __init__(self):
-        cv.imshow("RCF analyzer", np.zeros((10,10)))
-        cv.setMouseCallback("RCF analyzer", self._click)
         self.coordinates = []
         self.drawImg = None
 
@@ -370,17 +368,21 @@ class RCFAnalyzer:
         self.drawImg = img.copy()
         cv.imshow("RCF analyzer", self.drawImg)
 
+        if not self._initialized:
+            cv.setMouseCallback("RCF analyzer", self._click)
+            self._initialized = True
+
 class PeakAnalyzer:
     def __init__(self):
         self.coordinates = []
         self.windowRadius = 20
         self.currentPos = (0,0)
         self.drawImg = None
-        self.p = 0.97
+        self.p = 0.975
 
 
-        cv.imshow("Peak analyzer p={}".format(self.p), np.zeros((10,10)))
-        cv.setMouseCallback("Peak analyzer p={}".format(self.p), self._click)
+        #cv.imshow("Peak analyzer p={}".format(self.p), np.zeros((10,10)))
+        self._initialized = False
 
     def _click(self, event, x, y, flags, param):
         self.currentPos = (x,y)
@@ -420,7 +422,12 @@ class PeakAnalyzer:
     def update(self, img):
         self.coordinates = []
         self.drawImg = img.copy()
+
         cv.imshow("Peak analyzer p={}".format(self.p), self.drawImg)
+
+        if not self._initialized:
+            cv.setMouseCallback("Peak analyzer p={}".format(self.p), self._click)
+            self._initialized = True
 
 class ImageAnalyzeNode:
     def __init__(self, cameraYamlPath=None):
@@ -567,16 +574,9 @@ class ImageAnalyzeNode:
         return img
 
     def _analyzeImage(self, imgRect, nFeatures, mask=None):
-        kernel = circularKernel(7)
         gray = cv.cvtColor(imgRect, cv.COLOR_BGR2GRAY)
-        
-        img = imgRect.copy()
-        g = GradientFeatureExtractor(None, 1337, 5)
-        cv.imshow("gray", gray)
-        gradImg = g(gray)
-        _, gradImg = cv.threshold(gradImg, self.analyzeThreshold, 255, cv.THRESH_BINARY)
-        cv.imshow("grad image", gradImg)
-
+        _, thresh = cv.threshold(gray, self.analyzeThreshold, 255, cv.THRESH_BINARY)
+        img = thresh
         """
         # LoG
         blobRadius = 10
@@ -595,64 +595,7 @@ class ImageAnalyzeNode:
         cv.imshow("log thresh", logThresh)
         #dst[np.where(blurred == 255)] = 255
         """
-        
-        _, grayThreholded = cv.threshold(gray, self.analyzeThreshold, 255, cv.THRESH_BINARY)
-        #blurred = cv.GaussianBlur(gray, (5,5), 0)
-        
-        localMaxImg = localMax(gray, circularKernel(11))
-        ksize = 25
-        blurred = cv.GaussianBlur(gray, (ksize,ksize), 0)
-        p = .8
-        localMaxImg = localMaxChange(blurred, circularKernel(ksize), p)
-
-        _, localMaxImg = cv.threshold(localMaxImg, self.analyzeThreshold, 256, cv.THRESH_TOZERO)
-        #localMaxSup = cv.GaussianBlur(localMaxSup, (11,11), 0)
-        
-        #localMaxSup = cv.GaussianBlur(localMaxSup, (11,11), 0)
-        cv.imshow("local max", localMaxImg)
-
-        #cv.imshow("local max thresholded", localMaxThresholded)
-        #cv.imshow("thresholded", grayThreholded)
-        return grayThreholded
-        
-        
-        cv.imshow("erosion binary", cv.erode(grayThreholded, kernel))
-        cv.imshow("erosion gray", cv.erode(gray, kernel))
-
-        cv.imshow("dilation binary", cv.dilate(grayThreholded, kernel))
-        cv.imshow("dilation gray", cv.dilate(gray, kernel))
-  
-        cv.imshow("opening binary", cv.morphologyEx(grayThreholded, cv.MORPH_OPEN, kernel))
-        cv.imshow("opening gray", cv.morphologyEx(gray, cv.MORPH_OPEN, kernel))
-
-        #imgROI = imageROI(img, margin=80)
-        #plotHistogram(imgRect, )
         return img
-
-        """
-        #peakFeatureExtractor = AdaptiveThresholdPeak(8, 11, 0.975, 0.975, 0.7, 200, 0.0001, 5, maxIter=20)
-        hats = ModifiedHATS(8, 
-                            peakMargin=0, # this should be zero
-                            minArea=20, 
-                            minRatio=0.2, # might not be good for outlier detection, convex hull instead?
-                            maxIntensityChange=0.7,
-                            blurKernelSize=5,
-                            thresholdType=cv.THRESH_BINARY,
-                            mode=ModifiedHATS.MODE_VALLEY,
-                            showHistogram=False)
-        drawImg = imgRect.copy()
-        N = 0
-        times = []
-        for i in range(N):
-            start = time.time()
-            hats.process(gray, maxAdditionalCandidates=50, drawImg=drawImg)
-            elapsed = time.time() - start
-            times.append(elapsed)
-        if N > 0:
-            print(hats.iterations)
-            print("Min time:", min(times))
-        return drawImg
-        """
 
     def _histogram(self, gray):
         # 1D histogram
@@ -789,15 +732,20 @@ class ImageAnalyzeNode:
             
         return key
 
-    def _anaLyzeImages(self, datasetPath, labelFile, imageGenerator, analyzeImages):
+    def _anaLyzeImages(self, datasetPath, labelFile, imageGenerator, analyzeImages, displayTracking=True, displayPeak=False, displayRCF=False):
         labeledImgs = readLabeledImages(datasetPath, labelFile)
 
         cv.imshow("frame", np.zeros((10,10), dtype=np.uint8))
 
         labeler = ImageLabeler()
+        #if displayTracking:
         lightSourceAnalyzer = LightSourceTrackAnalyzer()
+
+        #if displayRCF:
         rcfAnalyzer = RCFAnalyzer()
+        #if displayPeak:
         peakAnalyzer = PeakAnalyzer()
+
         self.histogramActive = False
         pause = True
 
@@ -807,9 +755,12 @@ class ImageAnalyzeNode:
             imgRect = self.camera.undistortImage(imgColorRaw).astype(np.uint8)
             
             print("Frame " + str(i))
-            lightSourceAnalyzer.update(imgRect)
-            rcfAnalyzer.update(imgRect)
-            peakAnalyzer.update(imgRect)
+            if displayTracking:
+                lightSourceAnalyzer.update(imgRect)
+            if displayRCF:
+                rcfAnalyzer.update(imgRect)
+            if displayPeak:
+                peakAnalyzer.update(imgRect)
             if analyzeImages:
                 key = self.analyzeImage(imgName, imgColorRaw, imgRect, labeledImgs, i)
             else:
@@ -961,7 +912,7 @@ class ImageAnalyzeNode:
                 imgRectROI = imgRect.copy()
 
                 offset = (0, 0)
-                if True:
+                if False:
                     # Manual ROI                
                     (x, y, w, h), roiCnt = regionOfInterest([[u,v] for u,v,r in errCircles], 80, 80)
                     x = max(0, x)
@@ -1216,8 +1167,15 @@ class ImageAnalyzeNode:
             if rospy.is_shutdown():
                 return
 
-            frame = bridge.imgmsg_to_cv2(msg, 'bgr8')
+            if msg._type == Image._type:
+                frame = bridge.imgmsg_to_cv2(msg, 'bgr8')
+            elif msg._type == CompressedImage._type:
+                arr = np.fromstring(msg.data, np.uint8)
+                frame = cv.imdecode(arr, cv.IMREAD_COLOR)
+            else:
+                raise Exception("Invalid message type '{}'".format(msg._type))
 
+            
             # unique name for video frame
             rosbagFile = os.path.splitext(os.path.basename(rosbagPath))[0]
             imgName = os.path.splitext(rosbagFile)[0] + "_msg_" + str(i) + ".png"
@@ -1248,7 +1206,7 @@ if __name__ == "__main__":
     # single light source
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/contour.yaml")
     videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/FILE0151.MP4")
-    #imgLabelNode.analyzeVideoImages(datasetPath, labelFile, videoPath, startFrame=550)
+    #imgLabelNode.analyzeVideoImages(datasetPath, labelFile, videoPath, startFrame=550, analyzeImages=False)
 
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/contour.yaml")
     #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/171121/171121_straight_test.MP4")
@@ -1256,13 +1214,13 @@ if __name__ == "__main__":
     #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/171121/171121_angle_test.MP4")
     #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/FILE0197.MP4")
     #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/271121/271121_5planar_1080p.MP4")
-    imgLabelNode.analyzeVideoImages(datasetPath, labelFile, videoPath, startFrame=400, analyzeImages=False)
+    #imgLabelNode.analyzeVideoImages(datasetPath, labelFile, videoPath, startFrame=350, analyzeImages=False)
 
     # DoNN dataset
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/donn_camera.yaml")
     videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "image_dataset/dataset_recovery/donn.mp4")
     datasetRecovery = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "image_dataset/dataset_recovery")
-    #imgLabelNode.analyzeVideoImages(datasetRecovery, "donn.txt", videoPath, startFrame=1391, analyzeImages=True, test=False)
+    #imgLabelNode.analyzeVideoImages(datasetRecovery, "donn.txt", videoPath, startFrame=1, analyzeImages=True, test=False)
 
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/usb_camera_720p_sim.yaml")
     rosbagFile = "sim_bag.bag"
@@ -1273,7 +1231,12 @@ if __name__ == "__main__":
     rosbagFile = "ice.bag"
     rosbagPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), join("rosbags", rosbagFile))
     #imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "lolo_camera/image_raw", startFrame=1200, analyzeImages=False)
-    
 
-    
-    #testFeatureExtractor(ThresholdFeatureExtractor, datasetPath, labelFile)
+    # For Aldo
+    cameraYaml = "camera_calibration_data/usb_camera_720p_8.yaml" # In /camera_calibration_data
+    rosbagFile = "2022-06-08-17-44-05_lab_docking_station.bag" # In /rosbags
+    rosbagPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), join("rosbags", rosbagFile))
+    topic = "/csi_cam_1/camera/image_raw/compressed"
+    startFrame = 700 # Which message/frame to start at
+    imgLabelNode = ImageAnalyzeNode(cameraYaml)
+    imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, topic, startFrame=startFrame, analyzeImages=False)

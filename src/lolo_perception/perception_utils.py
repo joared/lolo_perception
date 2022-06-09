@@ -160,7 +160,7 @@ def plotPoseImageInfo(poseImg,
                     camera, 
                     featureModel.features, 
                     color=(0, 0, 255))
-        plotPoints(poseImg, [ls.center for ls in dsPose.associatedLightSources], (255, 0, 0), radius=2)
+        plotPoints(poseImg, [ls.center for ls in dsPose.associatedLightSources], (255, 0, 0), radius=1)
 
     plotCrosshair(poseImg, camera)
     
@@ -298,7 +298,7 @@ def plotVector(img, vector, translationVector, rotationVector, camera, color=(25
 
 def plotPosePoints(img, translationVector, rotationVector, camera, points, color):
     projPoints = projectPoints(translationVector, rotationVector, camera, points)
-    plotPoints(img, projPoints, color, radius=2)
+    plotPoints(img, projPoints, color, radius=1)
 
 def plotPosePointsWithReprojection(img, translationVector, rotationVector, camera, objPoints, imagePoints, color):
     projPoints = projectPoints(translationVector, rotationVector, camera, objPoints)
@@ -318,7 +318,10 @@ def plotPoints(img, points, color, radius=1):
     for p in points:
         x = int( round(p[0]) )
         y = int( round(p[1]) )
-        cv.circle(img, (x,y), radius, color, -1)
+        if radius == 1:
+            cv.circle(img, (x,y), radius, color, 1)
+        else:
+            cv.circle(img, (x,y), radius, color, -1)
 
 def projectPoints(translationVector, rotationVector, camera, objPoints):
     projPoints, _ = cv.projectPoints(objPoints, 

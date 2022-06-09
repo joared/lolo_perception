@@ -34,7 +34,7 @@
   </node>
  
   <node pkg="tf" type="static_transform_publisher" name="docking_station_link" args="0 0 1 1.571 0 -1.571 map docking_station_link 100" if="$(eval arg('perspective') == 'dockingstation')"/>
-  <!--node pkg="tf" type="static_transform_publisher" name="lolo_camera_link" args="0 0 1 -1.571 0 -1.571 map lolo_camera_link 100" if="$(eval arg('perspective') == 'camera')"/-->
+  <node pkg="tf" type="static_transform_publisher" name="lolo_camera_link" args="0 0 1 -1.571 0 -1.571 map lolo_camera_link 100" if="$(eval arg('perspective') == 'camera')"/>
   <!--node pkg="tf" type="static_transform_publisher" name="lolo_camera_link" args="-2.5 0.0 0.33 1.571 0 -1.571 lolo/base_link lolo_camera_link 100" if="$(eval arg('solo') == true)"/-->
 
   <node type="rviz" name="rviz" pkg="rviz" args="-d $(find lolo_perception)/rviz/lolo.rviz" if="$(arg rviz)"/>
