@@ -1162,6 +1162,8 @@ class ImageAnalyzeNode:
         i = 0
         for topic, msg, t in bag.read_messages(topics=imageRawTopic):
             i += 1
+            #if i%2 == 0: # Hey Aldo! Uncomment to skip some images
+            #    continue
             if i < startFrame:
                 continue
             if rospy.is_shutdown():
@@ -1233,10 +1235,23 @@ if __name__ == "__main__":
     #imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "lolo_camera/image_raw", startFrame=1200, analyzeImages=False)
 
     # For Aldo
-    cameraYaml = "camera_calibration_data/usb_camera_720p_8.yaml" # In /camera_calibration_data
-    rosbagFile = "2022-06-08-17-44-05_lab_docking_station.bag" # In /rosbags
+    cameraYaml = "camera_calibration_data/kristineberg.yaml" # In /camera_calibration_data
+    
+    # Lab test
+    #rosbagFile = "2022-06-08-17-44-05_lab_docking_station.bag" # In /rosbags
+    #topic = "/csi_cam_1/camera/image_raw/compressed"
+    #startFrame = 700
+    
+    # Seabed 1
+    #rosbagFile = "2022-06-09-12-03-13.bag"
+    #topic = "/sam/perception/csi_cam_0/camera/image_raw/compressed"
+    #startFrame = 7000
+    
+    # Seabed 2
+    rosbagFile = "2022-06-09-12-10-59.bag"
+    topic = "/sam/perception/csi_cam_0/camera/image_raw/compressed"
+    startFrame = 1
+
     rosbagPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), join("rosbags", rosbagFile))
-    topic = "/csi_cam_1/camera/image_raw/compressed"
-    startFrame = 700 # Which message/frame to start at
     imgLabelNode = ImageAnalyzeNode(cameraYaml)
     imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, topic, startFrame=startFrame, analyzeImages=False)
