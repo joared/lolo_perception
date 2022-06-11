@@ -6,6 +6,7 @@
   <arg name="hz" default="30"/>
   <arg name="pose_feedback" default="true"/>
   <arg name="cv_show" default="false"/>
+  <arg name="d_count_thresh" default="10"/>
   <arg name="rviz" default="false"/>
 
   <!--Some parameters for the perception node-->
@@ -23,12 +24,13 @@
     <param name="publish_cam_pose" value="$(eval arg('perspective') == 'dockingstation')"/>
     <param name="hats_mode" value="$(arg hats_mode)"/>
     <param name="pose_feedback" value="$(arg pose_feedback)"/>
+    <param name="d_count_thresh" value="$(arg d_count_thresh)"/>
 
     <remap from="/lolo_camera/image_rect_color" to="/lolo/sim/camera_aft/image_color" if="$(eval arg('sim') == true)"/>
     <remap from="/lolo_camera/camera_info" to="/lolo/sim/camera_aft/camera_info" if="$(eval arg('sim') == true)"/>
   </node>
 
-  <node pkg="lolo_perception" type="path_publisher_node.py" name="path_publisher_node" if="$(eval arg('publish_path') == true)"> 
+  <node pkg="lolo_perception" type="path_publisher_node.py" name="path_publisher_node" if="$(eval arg('publish_path') == true)" output="screen"> 
     <remap from="/pose_topic" to="/docking_station/feature_model/estimated_pose" if="$(eval arg('perspective') == 'camera')"/>
     <remap from="/pose_topic" to="/lolo_camera/estimated_pose" if="$(eval arg('perspective') == 'dockingstation')"/>
   </node>

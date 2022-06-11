@@ -53,7 +53,7 @@ def calcMahalanobisDist(estDSPose, dsPose, SInv=None):
         SInv = np.linalg.inv(estDSPose.covariance)
 
     translErr = estDSPose.translationVector - dsPose.translationVector
-    translErr *= 0 # ignore translation for now
+    translErr[2] = 0 # ignore z translation for now
     
     r1 = R.from_rotvec(estDSPose.rotationVector)
     r2 = R.from_rotvec(dsPose.rotationVector)
@@ -302,6 +302,13 @@ class DSPose:
         
         #return True # TODO: remove
         #return self.validReprError_old_reprojection() # old version
+
+        # TODO: remove, fixed threshold test
+        #for err in self.reprErrors:
+        #    if np.linalg.norm(err) > 10:
+        #        return False
+        #return True
+
         for err, pCov in zip(self.reprErrors, self.pixelCovariances):
             try:
                 pCovInv = np.linalg.inv(pCov)
