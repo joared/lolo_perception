@@ -4,7 +4,7 @@ import numpy as np
 import itertools
 from scipy.spatial.transform import Rotation as R
 
-from lolo_perception.feature_extraction import featureAssociation, featureAssociationSquare, featureAssociationSquareImproved, localMax, refineCentroidGradient, LightSourceTrackInitializer, AdaptiveThreshold2, AdaptiveThresholdPeak, ModifiedHATS, LocalMaxHATS
+from lolo_perception.feature_extraction import featureAssociation, featureAssociationSquare, featureAssociationSquareImproved, localMax, refineCentroidGradient, LightSourceTrackInitializer, AdaptiveThreshold2, AdaptiveThresholdPeak, ModifiedHATS, LocalMaxHATS, LoG
 from lolo_perception.pose_estimation import DSPoseEstimator, calcMahalanobisDist
 from lolo_perception.perception_utils import plotPoseImageInfo, regionOfInterest
 
@@ -27,50 +27,59 @@ class Perception:
 
         # Choose association method
         def assFunc(comb):
-            return featureAssociation(self.featureModel.features, comb)
+            #return featureAssociation(self.featureModel.features, comb)
             #return featureAssociationSquare(self.featureModel.features, comb, self.camera.resolution)
-            #return featureAssociationSquareImproved(self.featureModel.features, comb)
+            return featureAssociationSquareImproved(self.featureModel.features, comb)
 
         self.associationFunc = assFunc
-
-        res1080p = True
-        if res1080p:
-            minArea = 40
+        
+        if self.camera.resolution[1] > 1280:
+            print("Using large kernels")
+            minArea = 80 #40
             blurKernelSize = 11 # 11
-            localMaxKernelSize = 11 # 25
+            localMaxKernelSize = 21 # 11
+        elif self.camera.resolution[1] == 1280:
+            print("Using small kernels")
+            minArea = 80 #20
+            blurKernelSize = 11 #9# 9/11
+            localMaxKernelSize = 11 # 11
         else:
-            minArea = 20
-            blurKernelSize = 5
-            localMaxKernelSize = 5 # 11
+            print("Using tiny kernels")
+            minArea = 80
+            blurKernelSize = 5 #5
+            localMaxKernelSize = 11 # 11
+        
 
-        minCircleExtent = 0.1 # 0.2
-        maxIntensityChange = 0.7
-        self.areaScale = 3 # change to HATS when all areas > minArea*areaScale 
+        minCircleExtent = 0.55 # 0.55 for underwater, 0 when above ground
+        self.maxIntensityChange = 0.7
+        self.toHATSScale = 3 #3 # change to HATS when min area > minArea*areaScale
+        self.toPeakScale = 1.5 # change back to peak when min area < minArea*areaScale
+        ignoreMax = False
         self.hatsFeatureExtractor = ModifiedHATS(len(self.featureModel.features), 
                                                  peakMargin=0, # this should be zero if using MODE_VALLEY or MODE_PEAK
                                                  minArea=minArea, 
                                                  minRatio=minCircleExtent, # might not be good for outlier detection, convex hull instead?
-                                                 maxIntensityChange=maxIntensityChange,
+                                                 maxIntensityChange=self.maxIntensityChange,
                                                  blurKernelSize=blurKernelSize,
                                                  thresholdType=cv.THRESH_BINARY,
                                                  mode=hatsMode,
-                                                 ignorePeakAtMax=True,
+                                                 ignorePeakAtMax=ignoreMax,
                                                  showHistogram=False)
 
         # Use local peak finding to initialize and when light sources are small
         # This feature extractor sorts candidates based on intensity and then area
-        pMin = .8
-        pMax = .975
+        pMin = .975 # .8
+        pMax = .975 #.975
         maxIter = 100
         self.peakFeatureExtractor = AdaptiveThresholdPeak(len(self.featureModel.features), 
                                                           kernelSize=localMaxKernelSize, # 11 for 720p, 25 for 1080p
                                                           pMin=pMin, #0.93 set pMin = pMax for fixed p
                                                           pMax=pMax, # 0.975
-                                                          maxIntensityChange=maxIntensityChange,
+                                                          maxIntensityChange=self.maxIntensityChange,
                                                           minArea=minArea,
                                                           minCircleExtent=minCircleExtent,
                                                           blurKernelSize=blurKernelSize,  # 5 for 720p, 11 for 1080p
-                                                          ignorePAtMax=True,
+                                                          ignorePAtMax=ignoreMax,
                                                           maxIter=maxIter)
         
         # start with peak
@@ -83,7 +92,8 @@ class Perception:
         self.maxAdditionalCandidates = 6 # 6
 
         # margin of the region of interest when pose has been aquired
-        self.roiMargin = int(round(0.0626*self.camera.cameraMatrix[0, 0]))
+        #self.roiMargin = int(round(0.0626*self.camera.cameraMatrix[0, 0]))
+        self.roiMargin = 90
 
         # This scaling might not be accurate, better to adjust manually
         #minPatchRadius = int(self.camera.cameraMatrix[0, 0]*self.camera.resolution[1]/69120.0)
@@ -91,8 +101,8 @@ class Perception:
         #maxPatchRadius = int(minPatchRadius * 7.2)
         #maxMovement = int(minPatchRadius * 1.5)
         minPatchRadius = self.roiMargin
-        radius = 20
-        maxPatchRadius = 100
+        radius = 11
+        maxPatchRadius = 25
         maxMovement = 20
 
         # Initialize light source trackers
@@ -119,7 +129,7 @@ class Perception:
         # valid orientation range [yawMinMax, pitchMinMax, rollMinMax]. Currently not used to disregard
         # invalid poses, but the axis and region of interest will be shown in red when a pose has 
         # an orientation within the valid range 
-        self.validOrientationRange = [np.radians(80), np.radians(30), np.radians(30)]
+        self.validOrientationRange = [np.radians(90), np.radians(30), np.radians(30)]
 
         # mahalanobis distance threshold
         self.mahalanobisDistThresh = 12.592
@@ -137,7 +147,7 @@ class Perception:
         # 5 - track pose
         self.startStage = 4 # 1 or 4
         self.stage = self.startStage
-        self.stage2Iterations = 15#15 # Tracking light sources for this amount of frames
+        self.stage2Iterations = 30#15 # Tracking light sources for this amount of frames
         self.stage4Iterations = 10 # Acquiring pose for this amount of frames
 
         # Access images from perception_node
@@ -277,10 +287,10 @@ class Perception:
                 
                 if estDSPose:
                     if self.featureExtractor == self.peakFeatureExtractor:
-                        changeToHATS = all([ls.area > self.areaScale*self.hatsFeatureExtractor.minArea for ls in estDSPose.associatedLightSources])
+                        changeToHATS = all([ls.area > self.toHATSScale*self.hatsFeatureExtractor.minArea for ls in estDSPose.associatedLightSources])
                     else:
-                        changeToHATS = all([ls.area > self.areaScale/2.0*self.hatsFeatureExtractor.minArea for ls in estDSPose.associatedLightSources])
-                        
+                        changeToHATS = all([ls.area > self.toPeakScale*self.hatsFeatureExtractor.minArea for ls in estDSPose.associatedLightSources])
+                
                     if changeToHATS:
                         self.featureExtractor = self.hatsFeatureExtractor
                     else:
@@ -301,10 +311,9 @@ class Perception:
 
             if len(candidates) >= len(self.featureModel.features):
 
-
                 # N_C! / (N_F! * (N_C-N_F)!)
                 lightCandidateCombinations = list(itertools.combinations(candidates, len(self.featureModel.features)))
-                     
+                    
                 # TODO: does this take a lot of time?
                 # sort combinations
                 if self.featureExtractor == self.hatsFeatureExtractor:
@@ -319,6 +328,18 @@ class Perception:
                     # using some other 
                     print("sorting by intensity, then area")
                     lightCandidateCombinations.sort(key=lambda comb: (sum([ls.intensity for ls in comb]), sum([ls.area for ls in comb])), reverse=True)
+
+                """
+                lightCandidateCombinationsNew = []
+                for comb in lightCandidateCombinations:
+                    #intensities = [ls.intensity for ls in comb]
+                    #if max(intensities)*.9 < min(intensities):
+                    #    lightCandidateCombinationsNew.append(comb)
+                    areas = [ls.area for ls in comb]
+                    if max(areas) < min(areas) + 500:
+                        lightCandidateCombinationsNew.append(comb)
+                lightCandidateCombinations = lightCandidateCombinationsNew
+                """
 
                 associatedCombinations = AssociateCombinationGenerator(lightCandidateCombinations, 
                                                                        self.associationFunc)
@@ -390,6 +411,7 @@ class Perception:
             
         # plots pose axis, ROI, light sources etc. 
         plotPoseImageInfo(poseImg,
+                          self,
                           "{} S{}".format("HATS" if self.featureExtractor == self.hatsFeatureExtractor else "Peak", self.stage),
                           dsPose,
                           self.camera,

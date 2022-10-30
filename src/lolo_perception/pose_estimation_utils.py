@@ -522,6 +522,8 @@ def lmSolve(cameraMatrix, detectedPoints, objectPoints, tVec, rVec, jacobianCalc
 def RPnP(cameraMatrix, detectedPoints, objectPoints, tVec, rVec):
     pointsNorm = detectedPoints[:, :2]/detectedPoints[:, 2]
 
+    # select the z-axis, with largest reprojection
+
 if __name__ == "__main__":
     A = np.array([[2.020e-09, -3.756e-09, -4.912e-08 ],
                 [-3.756e-09,  9.147e-09,  1.300e-07],

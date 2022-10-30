@@ -26,6 +26,8 @@ def adjustPoses(poses, adjustMent):
     return poses
 
 def reorderPoses(poses, idxs):
+    if idxs is None:
+        return np.array(poses)
     posesNew = []
 
     for idx in idxs:
@@ -47,6 +49,12 @@ class TestSession:
         return cameraTransRelativeLight, cameraRotRelativeLight
 
     def displayErrors(self, poses, posesTrue):
+        poses = np.array(poses, dtype=np.float32)
+        posesTrue = np.array(posesTrue, dtype=np.float32)
+
+        tylim = .032
+        rylim = 2.1
+
         rangeErrors = []
         transErrors = []
         eulerErrors = []
@@ -60,6 +68,12 @@ class TestSession:
             eulerErrors.append(eulerErr)
             print("Light pose {} err: range {} trans {} rot {}".format(i+1, rangeErr, transErr, eulerErr))
 
+        transErrSum = [np.linalg.norm(err) for err in transErrors]
+
+        print("Mean translation error:", np.mean(transErrSum))
+        print("Max translation error:", np.max(transErrSum))
+        print("Mean orientation error:", np.mean(np.abs(eulerErrors)))
+
         x = list(range(1, len(poses)+1))
         plt.figure()
         plt.title("Docking staiton error")
@@ -68,12 +82,15 @@ class TestSession:
         plt.plot(x, np.array(transErrors)[:, 0], c="r")
         plt.plot(x, np.array(transErrors)[:, 1], c="g")
         plt.plot(x, np.array(transErrors)[:, 2], c="b")
-        plt.legend(["Range", "X", "Y", "Z"])
+        plt.plot(x, transErrSum, c="black")
+        plt.legend(["Range", "X", "Y", "Z", "tot"])
+        plt.ylim(-tylim, tylim)
         plt.subplot(1, 2, 2)
         plt.plot(x, np.array(eulerErrors)[:, 0], c="g")
         plt.plot(x, np.array(eulerErrors)[:, 1], c="r")
         plt.plot(x, np.array(eulerErrors)[:, 2], c="b")
         plt.legend(["yaw", "pitch", "roll"])
+        plt.ylim(-rylim, rylim)
 
         rangeErrors = []
         transErrors = []
@@ -92,6 +109,12 @@ class TestSession:
             eulerErrors.append(eulerErr)
             print("Cam pose {} err: range {} trans {} rot {}".format(i+1, rangeErr, transErr, eulerErr))
 
+        transErrSum = [np.linalg.norm(err) for err in transErrors]
+
+        print("Mean translation error:", np.mean(transErrSum))
+        print("Mean orientation error:", np.mean(np.abs(eulerErrors)))
+        print("Mean orientation error:", np.mean(np.abs(eulerErrors), axis=0))
+
         x = list(range(1, len(poses)+1))
         plt.figure()
         plt.title("Camera pose error")
@@ -100,12 +123,15 @@ class TestSession:
         plt.plot(x, np.array(transErrors)[:, 0], c="r")
         plt.plot(x, np.array(transErrors)[:, 1], c="g")
         plt.plot(x, np.array(transErrors)[:, 2], c="b")
-        plt.legend(["Range", "X", "Y", "Z"])
+        plt.plot(x, transErrSum, c="black")
+        plt.legend(["Range", "X", "Y", "Z", "tot"])
+        plt.ylim(-tylim, tylim)
         plt.subplot(1, 2, 2)
         plt.plot(x, np.array(eulerErrors)[:, 0], c="g")
         plt.plot(x, np.array(eulerErrors)[:, 1], c="r")
         plt.plot(x, np.array(eulerErrors)[:, 2], c="b")
         plt.legend(["yaw", "pitch", "roll"])
+        plt.ylim(-rylim, rylim)
 
     def getCoordinateSystems(self, poses, posesTrue):
         # light prototype pose in world coordinates
@@ -260,20 +286,20 @@ if  __name__ == "__main__":
     yaw = 0
     posesTrue1 = [
                     # true poses from long range (120 cm)
-                    (0, 0, 120, yaw, 0, 0),
+                    (0, 0, 120., yaw, 0, 0),
                     (21.2, 0, 120, yaw, 0, 0),
                     (-21.2, 0, 120, yaw, 0, 0),
                     (43.7, 0, 120, yaw, 0, 0),
                     (-43.7, 0, 120, yaw, 0, 0),
                     # true poses from mid range (60 cm)
-                    (0, 0, 60, yaw, 0, 0),
+                    (0, 0., 60, yaw, 0, 0),
                     (21.8, 0, 60, yaw, 0, 0),
                     (-21.8, 0, 60, yaw, 0, 0),
                     # true pose from short range (20 cm)
                     (0, 0, 20, yaw, 0, 0)
                     ]
 
-    idxs = [3,2,6,4,5,1,7,0,8]
+    idxs = None #[3,2,6,4,5,1,7,0,8]
     poses1 = reorderPoses(poses1, idxs)
     posesTrue1 = reorderPoses(posesTrue1, idxs)
 
@@ -367,6 +393,8 @@ if  __name__ == "__main__":
     camPoses = cmToMeter(camPoses)
     camPosesTrue = cmToMeter(camPosesTrue)
     poseCovs = np.array([0]*len(poses))
+
+    print(camPosesTrue)
 
     ts.displayErrors(poses, posesTrue)
     ts.displayPoses(poses, posesTrue, poseCovs)

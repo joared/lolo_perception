@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from scipy import signal
 
 def plotPoseImageInfo(poseImg,
+                      perceptionRef,
                       titleText,
                       dsPose,
                       camera,
@@ -27,7 +28,9 @@ def plotPoseImageInfo(poseImg,
                color=(255,0,255), 
                thickness=2, 
                lineType=cv.LINE_AA)
-
+    
+    kernelSize = perceptionRef.peakFeatureExtractor.kernelSize
+    cv.circle(poseImg, (int(poseImg.shape[1]/2.5)-50, 45), int(kernelSize/2.0), (255,0,255), 2)
 
     cv.putText(poseImg, 
                poseEstMethod, 
@@ -146,7 +149,9 @@ def plotPoseImageInfo(poseImg,
                     color=(0,0,255))
         """
         #plotMaxReprojection(poseImg, dsPose)
-        plotErrorEllipses(poseImg, dsPose)
+        plotErrorEllipses(poseImg, 
+                          dsPose,
+                          displayReferenceSphere=False)
         plotPoseInfo(poseImg, 
                     dsPose.translationVector, 
                     dsPose.rotationVector,
@@ -194,7 +199,7 @@ def plotErrorEllipses(img, dsPose, color=(0,0,255), displayReferenceSphere=False
         projPoint = projectPoints(dsPose.translationVector, dsPose.rotationVector, dsPose.camera, np.array([[0., 0., 0.]]))[0]
         plotErrorEllipse(img, projPoint, pixelCovariance, confidence=confidence)
 
-def plotErrorEllipse(img, center, pixelCovariance, confidence=5.991, color=(0,0,255)):
+def plotErrorEllipse(img, center, pixelCovariance, confidence=5.991, color=(0,0,255), displayAxis=False):
     # confidence - sqrt(confidence) in std direction
     lambdas, vs = np.linalg.eig(pixelCovariance)
     l1, l2 = lambdas # variances
@@ -205,23 +210,27 @@ def plotErrorEllipse(img, center, pixelCovariance, confidence=5.991, color=(0,0,
     if l1 > l2:
         #dir = -1
         angle = np.rad2deg(np.arctan2(v1[1], v1[0]))
-        major = int(round(np.sqrt(confidence*l1))) # has to be int for some reason
-        minor = int(round(np.sqrt(confidence*l2))) # has to be int for some reason
+        major = np.sqrt(confidence*l1) # has to be int for some reason
+        minor = np.sqrt(confidence*l2) # has to be int for some reason
     else:
         #dir = 1
         angle = np.rad2deg(np.arctan2(v2[1], v2[0]))
-        major = int(round(np.sqrt(confidence*l2))) # has to be int for some reason
-        minor = int(round(np.sqrt(confidence*l1))) # has to be int for some reason
+        major = np.sqrt(confidence*l2) # has to be int for some reason
+        minor = np.sqrt(confidence*l1) # has to be int for some reason
 
     center = int(round(center[0])), int(round(center[1]))
-    for l, v in zip((l1, l2), (v1, v2)):
-        v = v[0], -v[1]
-        l = np.sqrt(confidence*l)
-        end = center[0]+v[0]*l, center[1]+v[1]*l
-        end = int(round(end[0])), int(round(end[1]))
-        cv.line(img, center, end, color=color)
+
+    if displayAxis:
+        for l, v in zip((l1, l2), (v1, v2)):
+            v = v[0], -v[1]
+            l = np.sqrt(confidence*l)
+            end = center[0]+v[0]*l, center[1]+v[1]*l
+            end = int(round(end[0])), int(round(end[1]))
+            cv.line(img, center, end, color=color)
     
-    cv.ellipse(img, center, (major, minor), -angle, 0, 360, color=color)
+    cv.ellipse(img, center, (int(round(major)), int(round(minor))), -angle, 0, 360, color=color)
+    
+    return major, minor, -angle
 
 def plotMaxReprojection(img, dsPose, color=(0,0,255)):
     for center, maxErr in zip(dsPose.reProject(), dsPose.reprErrorsMax):

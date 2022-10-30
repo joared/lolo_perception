@@ -26,6 +26,19 @@ def polygons(rads, ns, shifts, zShifts):
     return points
 
 
+def circle(rad, degrees):
+    """
+    rad - radius
+    degrees - list of angles in degrees
+    """
+    degrees = [np.deg2rad(theta) for theta in degrees]
+    points = []
+    for theta in degrees:
+        point = rad*np.cos(theta), -rad*np.sin(theta), 0
+        points.append(point)
+
+    return np.array(points, dtype=np.float32)
+
 class FeatureModel:
 
     # default light source placement uncertainty percentage (percentage of max radius)
@@ -78,6 +91,10 @@ class FeatureModel:
             n = int(n)
             shift = bool(shift)
             features = polygon(rad, n, shift)
+        elif features[0] == "circle":
+            rad = float(features[1])
+            degrees = map(float, features[2:])
+            features = circle(rad, degrees)
         else:
             features = np.array(featureModelData["features"], dtype=np.float32)
 
@@ -103,6 +120,9 @@ if __name__ == "__main__":
     featureModelYaml = args.feature_model_yaml
     yamlPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "feature_models/{}".format(featureModelYaml))
     fm = FeatureModel.fromYaml(yamlPath)
+
+    print("Configuration:")
+    print(fm.features)
 
     r = R.from_euler("XYZ", (-np.pi/2,0,0))
     featurePoints = r.apply(fm.features)

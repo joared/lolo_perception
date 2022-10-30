@@ -20,6 +20,8 @@ from lolo_perception.perception_ros_utils import readCameraYaml, msgToImagePoint
 from lolo_perception.feature_extraction import contourRatio, MeanShiftTracker, LightSourceTracker, RCFS, RCF, findPeakContourAt, circularKernel, LightSourceTrackInitializer, localMax, localMaxSupressed, localMaxSupressed2, localMaxChange, removeContoursOnEdges
 from lolo_perception.perception_utils import plotHistogram, imageROI, regionOfInterest
 
+from lolo_perception.pose_estimation import calcPoseCovarianceFixedAxis
+
 # for _analyzeImage
 from lolo_perception.feature_extraction import ModifiedHATS, findNPeaks2, peakThresholdMin, LoG, contourCentroid, AdaptiveThresholdPeak, GradientFeatureExtractor, findAllPeaks, findPeaksDilation, peakThreshold, AdaptiveThreshold2, circularKernel, removeNeighbouringContours, removeNeighbouringContoursFromImg, AdaptiveOpen, maxShift, meanShift, drawInfo, medianContourAreaFromImg, findMaxPeaks, findMaxPeak
 
@@ -315,7 +317,7 @@ class LightSourceTrackAnalyzer:
     def __init__(self):
         cv.imshow("Light source tracking", np.zeros((10,10)))
         cv.setMouseCallback("Light source tracking", self._click)
-        self.lsTracker = LightSourceTrackInitializer(radius=50, maxPatchRadius=100, minPatchRadius=55, maxMovement=50)
+        self.lsTracker = LightSourceTrackInitializer(radius=50, maxPatchRadius=100, minPatchRadius=55, maxMovement=1000)
         self._newTrackerCenters = []
         self._gray = None
 
@@ -434,12 +436,14 @@ class ImageAnalyzeNode:
         if cameraYamlPath:
             self.cameraInfoMsg = readCameraYaml(cameraYamlPath)
             projectionMatrix = np.array(self.cameraInfoMsg.P, dtype=np.float32).reshape((3,4))[:,:3]
+            cameraMatrix = np.array(self.cameraInfoMsg.K, dtype=np.float32).reshape((3,3))
+            
             #self.camera = Camera(cameraMatrix=projectionMatrix, 
             #                    distCoeffs=np.zeros((1,4), dtype=np.float32),
             #                    projectionMatrix=None,
             #                    resolution=(self.cameraInfoMsg.height, self.cameraInfoMsg.width))
 
-            self.camera = Camera(cameraMatrix=np.array(self.cameraInfoMsg.K, dtype=np.float32).reshape((3,3)), 
+            self.camera = Camera(cameraMatrix=np.array(cameraMatrix, dtype=np.float32).reshape((3,3)), 
                                 distCoeffs=np.array(self.cameraInfoMsg.D, dtype=np.float32),
                                 projectionMatrix=projectionMatrix,
                                 resolution=(self.cameraInfoMsg.height, self.cameraInfoMsg.width))
@@ -574,28 +578,82 @@ class ImageAnalyzeNode:
         return img
 
     def _analyzeImage(self, imgRect, nFeatures, mask=None):
+        
         gray = cv.cvtColor(imgRect, cv.COLOR_BGR2GRAY)
-        _, thresh = cv.threshold(gray, self.analyzeThreshold, 255, cv.THRESH_BINARY)
+        drawImg = cv.cvtColor(gray, cv.COLOR_GRAY2BGR)
+
+        blurred = cv.GaussianBlur(gray, (11,11), 0)
+        _, thresh = cv.threshold(blurred, self.analyzeThreshold, 255, cv.THRESH_BINARY)
+
+        #cv.imshow("thresholded", thresh)
+
+        drawImg2 = drawImg.copy()
+        otsuThreshold, thresh = cv.threshold(gray, 0, 255, cv.THRESH_BINARY+cv.THRESH_OTSU)
         img = thresh
-        """
+        
+        #cv.imshow("otsu", thresh)
+
         # LoG
-        blobRadius = 10
-        sigma = (blobRadius-1.0)/3.0
-        ksize = int(round(sigma*6))
-        if ksize % 2 == 0:
-            ksize += 1
-        print("Sigma", sigma)
-        print("ksize", ksize)
-        blurred = cv.GaussianBlur(gray, (ksize,ksize), sigma)
-        dst = cv.Laplacian(blurred, ddepth=cv.CV_16S, ksize=3)
-        dst = cv.convertScaleAbs(dst, alpha=255./dst.max())
-        _, logThresh = cv.threshold(dst, self.analyzeThreshold, 256, cv.THRESH_BINARY)
+        images = []
+        for blobRadius in (10,): # DoNN 10,16,22,28
+            #blobRadius = 7
+            sigma = (blobRadius-1.0)/3.0
+            ksize = blobRadius*2-1#int(round(sigma*3))
+            if ksize % 2 == 0:
+                ksize += 1
+            laplaceKernel = 3 #ksize#int(blobRadius/2.0)
+            print(laplaceKernel)
+            print("Sigma", sigma)
+            print("ksize", ksize)
+            blurred = cv.GaussianBlur(gray, (ksize,ksize), ksize) # ksize
+            #dst = cv.Laplacian(blurred, ddepth=cv.CV_16S, ksize=laplaceKernel)
+            dst = cv.Laplacian(blurred, ddepth=cv.CV_64F, ksize=laplaceKernel)
+            #dst = abs(dst)
+            #dst = dst/dst.max()
+            dst = cv.convertScaleAbs(dst, alpha=255./dst.max())
+            images.append(dst)
+        
+        logImg = images[0]
+        otsuThreshold, logThresh = cv.threshold(logImg, 0, 255, cv.THRESH_BINARY+cv.THRESH_OTSU)
+        cv.imshow("LoG", logImg)
+        cv.imshow("LoG+Otsu", logThresh)
+        return drawImg
+        #return drawImg
+        #images.append(blurred)
+        # weighted average
+
+        locaMax = localMax(blurred, circularKernel(11))
+        dst = None
+        for image in images:
+            if dst is None:
+                dst = image.astype(np.float32)
+            else:
+                dst = np.maximum(dst, image.astype(np.float32))
+
+        
+        dst *= locaMax.astype(np.float32)
+        dst = dst*255./np.max(dst)
+        dst = dst.astype(np.uint8)
+        indices = np.where(dst == 0)
+        #dst[indices] = locaMax[indices]
+        #dst = cv.morphologyEx(dst, cv.MORPH_CLOSE, circularKernel(laplaceKernel), iterations=1)
+        t = 255
+        while True:
+            t -= 1
+            _, thresh = cv.threshold(dst, t, 256, cv.THRESH_BINARY)
+            _, contours, hier = cv.findContours(thresh, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
+            if len(contours) >= 11:
+                break
+        for cnt in contours:
+            cv.circle(drawImg, contourCentroid(cnt), 2, (255,0,0), -1)
         cv.imshow("blurred", blurred)
         cv.imshow("log", dst)
-        cv.imshow("log thresh", logThresh)
+        cv.imshow("log thresh", thresh)
+        cv.imshow("local max", locaMax)
+        
         #dst[np.where(blurred == 255)] = 255
-        """
-        return img
+        
+        return drawImg
 
     def _histogram(self, gray):
         # 1D histogram
@@ -732,7 +790,15 @@ class ImageAnalyzeNode:
             
         return key
 
-    def _anaLyzeImages(self, datasetPath, labelFile, imageGenerator, analyzeImages, displayTracking=True, displayPeak=False, displayRCF=False):
+    def _anaLyzeImages(self, 
+                       datasetPath, 
+                       labelFile, 
+                       imageGenerator, 
+                       analyzeImages, 
+                       displayTracking=True, 
+                       displayPeak=False, 
+                       displayRCF=False,
+                       waitForFeatureExtractor=False):
         labeledImgs = readLabeledImages(datasetPath, labelFile)
 
         cv.imshow("frame", np.zeros((10,10), dtype=np.uint8))
@@ -766,10 +832,24 @@ class ImageAnalyzeNode:
             else:
                 self._publish(imgColorRaw, imgRect)
                 while True:
-                    cv.imshow("frame", imgRect)
+                    #if imgRect.shape[0] > 720:
+                    #    cv.imshow("frame", cv.resize(imgRect, (640,360)))
+                    #else:
+                    #    cv.imshow("frame", imgRect)
+                    cv.imshow("frame", cv.resize(imgRect, (640,360)))
                     cv.setWindowTitle("frame", imgName)
                     #cv.setMouseCallback("frame", self._click)
-                    key = cv.waitKey(30)
+                    if waitForFeatureExtractor:
+                        print("waiting")
+                        if self.associatedImgPointsMsg:
+                            pause = False
+                            self.associatedImgPointsMsg = None
+                        else:
+                            pause = True
+                    if waitForFeatureExtractor:
+                        key = cv.waitKey(1)
+                    else:
+                        key = cv.waitKey(30)
                     if key == 32:
                         pause = not pause
                     if pause == False or key == ord("q"):
@@ -850,22 +930,23 @@ class ImageAnalyzeNode:
         featureModel = FeatureModel.fromYaml(featureModelYamlPath)
         featureExtractor = Perception(Camera(self.camera.projectionMatrix, np.zeros((1,4), dtype=np.float32), resolution=self.camera.resolution),
                                       featureModel)
-        featureExtractor.maxAdditionalCandidates = 100000
+        featureExtractor.maxAdditionalCandidates = 10000
 
         labeledImgs = readLabeledImages(datasetPath, labelFile)
 
         cv.imshow("frame", np.zeros((10,10), dtype=np.uint8))
 
-        undistort =  not np.all(self.camera.distCoeffs == 0)
+        undistort = not np.all(self.camera.distCoeffs == 0)
 
         allErrors = []
         failedImgs = []
         filedNCandidates = []
+        filedNCandidates2 = []
         nCandidates = []
         peakIterations = []
         poseEstimationAttempts = []
 
-        timeitNumber = 0
+        timeitNumber = 1
         times = [] # total time
         processTimes = [] # image processing time
         undistortTimes = [] # undistortion time
@@ -912,7 +993,7 @@ class ImageAnalyzeNode:
                 imgRectROI = imgRect.copy()
 
                 offset = (0, 0)
-                if False:
+                if True:
                     # Manual ROI                
                     (x, y, w, h), roiCnt = regionOfInterest([[u,v] for u,v,r in errCircles], 80, 80)
                     x = max(0, x)
@@ -936,7 +1017,8 @@ class ImageAnalyzeNode:
                     timitFunc = lambda: featureExtractor.estimatePose(imgRectROI, 
                                                                     estDSPose=estDSPose,
                                                                     estCameraPoseVector=None,
-                                                                    colorCoeffs=colorCoeffs)
+                                                                    colorCoeffs=colorCoeffs,
+                                                                    calcCovariance=False)
                     elapsed = min(timeit.repeat(timitFunc, repeat=timeitNumber, number=1))
                 
                 
@@ -949,10 +1031,13 @@ class ImageAnalyzeNode:
                 
 
                 cv.imshow("processed image", processedImg)
+                cv.imshow("pose image", poseImg)
                 cv.imshow("frame", tmpFrame)
                 cv.setWindowTitle("frame", imgName)
                 key = cv.waitKey(1)
-
+                
+                """
+                # When using predicted ROI 
                 if estDSPose and not dsPose:
                     start = time.clock()
                     dsPose, poseAquired, candidates, processedImg, poseImg = featureExtractor.estimatePose(imgRectROI, 
@@ -966,7 +1051,7 @@ class ImageAnalyzeNode:
                     cv.imshow("frame", tmpFrame)
                     cv.setWindowTitle("frame", imgName)
                     key = cv.waitKey(1)
-
+                """
                 attempts = 0
                 if dsPose:
                     attempts = dsPose.attempts
@@ -977,13 +1062,22 @@ class ImageAnalyzeNode:
                     ls.center = ls.center[0]+offset[0], ls.center[1]+offset[1]
                 
                 covElapsed = 0
-                if False and dsPose:
+                if dsPose:
                     if dsPose._covariance is not None:
                         raise Exception("Covariance already calculated")
                     
                     covElapsed = 0.1
                     if timeitNumber > 0:
-                        timeitFunc = lambda: dsPose.calcCovariance()
+                        def covCalc():
+                            dsPose._rmse = None
+                            dsPose.calcRMSE()
+                            calcPoseCovarianceFixedAxis(dsPose.camera, 
+                                                        dsPose.featureModel, 
+                                                        dsPose.translationVector, 
+                                                        dsPose.rotationVector, 
+                                                        dsPose.pixelCovariances)
+                        #def covCalc():
+                        timeitFunc = covCalc
                         covElapsed = min(timeit.repeat(timeitFunc, repeat=timeitNumber, number=1))
                     dsPose.calcCovariance()
                     #for ls in dsPose.associatedLightSources:
@@ -1010,12 +1104,16 @@ class ImageAnalyzeNode:
                     failedImgs.append(i)
                 
                 if dsPose:
+                    if len(candidates) > len(errCircles):
+                        filedNCandidates2.append(i)
+
                     for ls in dsPose.associatedLightSources:
                         if candidates.index(ls) > len(errCircles)-1:
                             filedNCandidates.append(i)
                             break
                 else:
                     filedNCandidates.append(i)
+                    filedNCandidates2.append(i)
 
                 allErrorsTemp = [e for e in allErrors if e is not None]
                 if allErrorsTemp:
@@ -1042,6 +1140,7 @@ class ImageAnalyzeNode:
 
         print("Failed images ({}): {}".format(len(failedImgs), failedImgs))
         print("Failed n candidates ({}): {}".format(len(filedNCandidates), filedNCandidates))
+        print("Failed n candidates2 ({}): {}".format(len(filedNCandidates2), filedNCandidates2))
         
         nImages = i
         imageNumbers = list(range(1, nImages+1))
@@ -1063,10 +1162,10 @@ class ImageAnalyzeNode:
         plt.ylabel("Computation time")
         plt.xlabel("Image number")
         plt.plot(imageNumbers, times)
-        #plt.plot(imageNumbers, undistortTimes)
-        #plt.plot(imageNumbers, processTimes)
+        plt.plot(imageNumbers, undistortTimes)
+        plt.plot(imageNumbers, processTimes)
         plt.plot(imageNumbers, covTimes)
-        #plt.legend(["Total", "Undistortion", "Image processing", "Covariance calculation"])
+        plt.legend(["Total", "Undistortion", "Image processing", "Covariance calculation"])
         
         figures.append(plt.figure())
         plt.xlim(0, nImages+1)
@@ -1162,7 +1261,7 @@ class ImageAnalyzeNode:
         i = 0
         for topic, msg, t in bag.read_messages(topics=imageRawTopic):
             i += 1
-            #if i%2 == 0: # Hey Aldo! Uncomment to skip some images
+            #if i%2 == 0 or i%3 == 0: # Hey Aldo! Uncomment to skip some images
             #    continue
             if i < startFrame:
                 continue
@@ -1187,17 +1286,17 @@ class ImageAnalyzeNode:
             print("No image messages with topic '{}' found".format(imageRawTopic))
 
 
-    def analyzeRosbagImages(self, datasetPath, labelFile, rosbagPath, imageRawTopic, startFrame=1, analyzeImages=True):
-        self._anaLyzeImages(datasetPath, labelFile, lambda: self._rosbagImageGenerator(rosbagPath, imageRawTopic, startFrame), analyzeImages)
+    def analyzeRosbagImages(self, datasetPath, labelFile, rosbagPath, imageRawTopic, startFrame=1, analyzeImages=True, waitForFeatureExtractor=False):
+        self._anaLyzeImages(datasetPath, labelFile, lambda: self._rosbagImageGenerator(rosbagPath, imageRawTopic, startFrame), analyzeImages, waitForFeatureExtractor=waitForFeatureExtractor)
 
-    def analyzeVideoImages(self, datasetPath, labelFile, videoPath, startFrame=1, analyzeImages=True, test=False):
+    def analyzeVideoImages(self, datasetPath, labelFile, videoPath, startFrame=1, analyzeImages=True, test=False, waitForFeatureExtractor=False):
         if test is True:
             self._testFeatureExtractor(datasetPath, labelFile, lambda: self._videoImageGenerator(videoPath, startFrame))
         else:
-            self._anaLyzeImages(datasetPath, labelFile, lambda: self._videoImageGenerator(videoPath, startFrame), analyzeImages)
+            self._anaLyzeImages(datasetPath, labelFile, lambda: self._videoImageGenerator(videoPath, startFrame), analyzeImages, waitForFeatureExtractor=waitForFeatureExtractor)
 
-    def analyzeImageDataset(self, datasetPath, labelFile, startFrame=1, analyzeImages=True):
-        self._anaLyzeImages(datasetPath, labelFile, lambda: self._imageDatasetGenerator(datasetPath, labelFile, startFrame), analyzeImages)
+    def analyzeImageDataset(self, datasetPath, labelFile, startFrame=1, analyzeImages=True, waitForFeatureExtractor=False):
+        self._anaLyzeImages(datasetPath, labelFile, lambda: self._imageDatasetGenerator(datasetPath, labelFile, startFrame), analyzeImages, waitForFeatureExtractor=waitForFeatureExtractor)
 
 if __name__ == "__main__":
     rospy.init_node("image_analyze_node")
@@ -1216,7 +1315,7 @@ if __name__ == "__main__":
     #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/171121/171121_angle_test.MP4")
     #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/FILE0197.MP4")
     #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/271121/271121_5planar_1080p.MP4")
-    #imgLabelNode.analyzeVideoImages(datasetPath, labelFile, videoPath, startFrame=350, analyzeImages=False)
+    #imgLabelNode.analyzeVideoImages(datasetPath, labelFile, videoPath, startFrame=350, analyzeImages=True, waitForFeatureExtractor=False) #350
 
     # DoNN dataset
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/donn_camera.yaml")
@@ -1232,7 +1331,7 @@ if __name__ == "__main__":
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/usb_camera_720p_8.yaml")
     rosbagFile = "ice.bag"
     rosbagPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), join("rosbags", rosbagFile))
-    #imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "lolo_camera/image_raw", startFrame=1200, analyzeImages=False)
+    #imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "lolo_camera/image_raw", startFrame=1200, analyzeImages=False, waitForFeatureExtractor=False) # 1200
 
     # For Aldo
     cameraYaml = "camera_calibration_data/kristineberg.yaml" # In /camera_calibration_data
@@ -1248,10 +1347,19 @@ if __name__ == "__main__":
     #startFrame = 7000
     
     # Seabed 2
-    rosbagFile = "2022-06-09-12-10-59.bag"
-    topic = "/sam/perception/csi_cam_0/camera/image_raw/compressed"
-    startFrame = 1
+    #rosbagFile = "2022-06-09-12-10-59.bag"
+    #topic = "/sam/perception/csi_cam_0/camera/image_raw/compressed"
+    #startFrame = 1
+
+    # Side cameras
+    #rosbagFile = "2022-06-09-19-44-50.bag"
+    rosbagFile = "2022-06-09-19-40-10.bag"
+    cameraYaml = "camera_calibration_data/csi_cam_1.yaml"
+    topic = "/sam/perception/csi_cam_1/camera/image_raw/compressed"
+    #cameraYaml = "camera_calibration_data/csi_cam_2.yaml"
+    #topic = "/sam/perception/csi_cam_2/camera/image_raw/compressed"
+    startFrame = 5900 #8800
 
     rosbagPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), join("rosbags", rosbagFile))
     imgLabelNode = ImageAnalyzeNode(cameraYaml)
-    imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, topic, startFrame=startFrame, analyzeImages=False)
+    imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, topic, startFrame=startFrame, analyzeImages=False, waitForFeatureExtractor=False)

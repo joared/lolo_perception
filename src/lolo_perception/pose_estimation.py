@@ -8,14 +8,25 @@ from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
 import scipy
 from lolo_perception.perception_utils import projectPoints, reprojectionError
-from lolo_perception.feature_extraction import featureAssociation
+from lolo_perception.feature_extraction import featureAssociation, withinContour
 
 
 from lolo_perception.reprojection_utils import calcPoseReprojectionRMSEThreshold, calcPoseReprojectionThresholds
 from lolo_perception.pose_estimation_utils import lmSolve, interactionMatrix
 
 from numpy.linalg import lapack_lite
+
+from scipy import sparse
 #lapack_routine = lapack_lite.dgesv
+
+def ellipseToCovariance(majorAxis, minorAxis, angle, confidence):
+    angle = np.deg2rad(angle)
+    majorAxis = majorAxis/np.sqrt(confidence)
+    minorAxis = minorAxis/np.sqrt(confidence)
+    varX = majorAxis**2 * np.cos(angle)**2 + minorAxis**2 * np.sin(angle)**2
+    varY = majorAxis**2 * np.sin(angle)**2 + minorAxis**2 * np.cos(angle)**2
+    cov = (majorAxis**2 - minorAxis**2) * np.sin(angle) * np.cos(angle)
+    return np.array([[varX, cov], [cov, varY]])
 
 def calcImageCovariance(translationVector, rotationVector, camera, featureModel, confidence):
     sigma3D = featureModel.uncertainty/np.sqrt(confidence)
@@ -53,7 +64,7 @@ def calcMahalanobisDist(estDSPose, dsPose, SInv=None):
         SInv = np.linalg.inv(estDSPose.covariance)
 
     translErr = estDSPose.translationVector - dsPose.translationVector
-    translErr[2] = 0 # ignore z translation for now
+    #translErr[2] = 0 # ignore z translation for now
     
     r1 = R.from_rotvec(estDSPose.rotationVector)
     r2 = R.from_rotvec(dsPose.rotationVector)
@@ -157,11 +168,20 @@ def calcPoseCovarianceFixedAxis(camera, featureModel, translationVector, rotatio
     else:
         sigma = scipy.linalg.block_diag(*[pixelCovariance]*len(featureModel.features))
 
-    sigmaInv = np.linalg.inv(sigma)
+    #sigmaInv = np.linalg.inv(sigma)
+    sigma = sparse.csr_matrix(sigma)
+    sigmaInv = sparse.linalg.inv(sigma)
     #sigmaInv = fastInverse(np.reshape(sigma, (sigma.shape[0], sigma.shape[1], 1))).reshape(sigma.shape)
     try:
-        mult = np.matmul(np.matmul(J.transpose(), sigmaInv), J)
-        covariance = np.linalg.inv(mult)
+        #mult = np.matmul(np.matmul(J.transpose(), sigmaInv), J)
+        #covariance = np.linalg.inv(mult)
+        
+        # new sparse calculation
+        J = sparse.csr_matrix(J)
+        JTranspose = sparse.csr_matrix(J.transpose())
+        mult =  sparse.csr_matrix.dot(sparse.csr_matrix.dot(JTranspose, sigmaInv), J)
+        covariance = sparse.linalg.inv(mult).toarray()
+        
         #covariance = fastInverse(np.reshape(mult, (mult.shape[0], mult.shape[1], 1))).reshape(mult.shape)
     except np.linalg.LinAlgError as e:
         print("Singular matrix")
@@ -296,13 +316,49 @@ class DSPose:
                 return False
         return True
 
-    def validReprError(self, minThreshold=0.7071):
+    def validReprError(self, 
+                       minThreshold=2.0 # 3.0
+                       #minThreshold=0.7071
+                       ):
         if self.reprErrors is None or self.pixelCovariances is None:
             self.calcRMSE()
         
         #return True # TODO: remove
         #return self.validReprError_old_reprojection() # old version
-
+        
+        # TODO: use ellipse of contour as image covariance
+        """
+        cnt = candidates[0].cnt
+        if len(cnt) >= 5:
+            box = cv.boxPoints(cv.minAreaRect(cnt))
+            box = np.intp(box) #np.intp: Integer used for indexing (same as C ssize_t; normally either int32 or int64)
+            cv.drawContours(drawImg, [box], 0, (255,0,255), 2)
+            ellipse = cv.fitEllipse(cnt)
+            cv.ellipse(drawImg, ellipse, (255,0,255), 2)
+            
+            
+            center, (major,minor), angle = cv.fitEllipseDirect(cnt)
+            center = (int(round(center[0])), int(round(center[1])))
+            major = int(round(major/np.sqrt(2)))
+            minor = int(round(minor/np.sqrt(2)))
+            cv.ellipse(drawImg, center, (major, minor), angle, 0, 360, color=(255,0,255))
+            #cv.rectangle(drawImg, center, (major,minor), (255,0,255), 1)
+        """
+        """
+        # TODO: this should be done, sign.sa..fas.afs.af.
+        projPoints = self.reProject()
+        for pp, ls, err in zip(projPoints, self.associatedLightSources, self.reprErrors):
+            if np.linalg.norm(err) < minThreshold:
+                # TODO: not sure how to choose minThreshold
+                continue
+            elif withinContour(pp[0], pp[1], ls.cnt):
+                continue
+            else:
+                break
+        else:
+            return True
+        #return True
+        """
         # TODO: remove, fixed threshold test
         #for err in self.reprErrors:
         #    if np.linalg.norm(err) > 10:
@@ -314,10 +370,12 @@ class DSPose:
                 pCovInv = np.linalg.inv(pCov)
             except np.linalg.LinAlgError as e:
                 print("Singular image covariance matrix")
-                return False
+                return False # TODO: why was this True before???
 
-            if np.linalg.norm(err) < minThreshold:
-                continue
+            #if np.linalg.norm(err) < 6.0:
+            #    continue
+            #else:
+            #    return False
 
             mahaDistSquare = np.matmul(np.matmul(err.transpose(), pCovInv), err)
             if mahaDistSquare > self.chiSquaredConfidence:
@@ -380,6 +438,7 @@ class DSPose:
                                                self.camera, 
                                                self.featureModel,
                                                confidence=self.chiSquaredConfidence)
+
         self.pixelCovariances = pixelCovariances
 
         self.reprErrorsMax = reprThresholds
@@ -425,7 +484,14 @@ class DSPose:
             #pixelCovariance = np.array([[sigmaX**2, 0], [0, sigmaY**2]])
             if self.pixelCovariances is None:
                 self.calcRMSE()
+            
             pixelCovariance = self.pixelCovariances
+
+            #pixelCovariance = []
+            # New stuff
+            #for ls, pCov in zip(self.associatedLightSources, self.pixelCovariances):
+            #pixelCovariance = np.array(pixelCovariance)
+            
 
         covariance = calcPoseCovarianceFixedAxis(self.camera, 
                                                  self.featureModel, 

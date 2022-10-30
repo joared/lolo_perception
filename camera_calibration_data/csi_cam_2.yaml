@@ -1,0 +1,26 @@
+image_width: 1280
+image_height: 720
+camera_name: csi_cam_2
+camera_matrix:
+  rows: 3
+  cols: 3
+  data: [774.16252,   0.     , 643.9309 ,
+           0.     , 770.96511, 342.19691,
+           0.     ,   0.     ,   1.     ]
+camera_model: plumb_bob
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data: [0.056073, -0.010850, -0.005301, 0.000235, 0.000000]
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data: [1., 0., 0.,
+         0., 1., 0.,
+         0., 0., 1.]
+projection_matrix:
+  rows: 3
+  cols: 4
+  data: [806.53271,   0.     , 643.6116 ,   0.     ,
+           0.     , 799.54663, 337.08122,   0.     ,
+           0.     ,   0.     ,   1.     ,   0.     ]

@@ -17,8 +17,8 @@ from cv_bridge import CvBridge, CvBridgeError
 from sensor_msgs.msg import Image
 
 from lolo_perception.feature_extraction import LightSource
-from lolo_perception.pose_estimation import DSPoseEstimator, calcPoseCovarianceFixedAxis
-from lolo_perception.perception_utils import plotPosePoints, plotPoints, plotAxis, projectPoints, plotPosePointsWithReprojection
+from lolo_perception.pose_estimation import DSPoseEstimator, calcPoseCovarianceFixedAxis, ellipseToCovariance
+from lolo_perception.perception_utils import plotPosePoints, plotPoints, plotAxis, projectPoints, plotPosePointsWithReprojection, plotErrorEllipse
 from lolo_perception.perception_ros_utils import vectorToPose, vectorToTransform, featurePointsToMsg
 
 
@@ -55,7 +55,7 @@ class PoseSimulation:
 
         return valid, invalid
 
-    def plotErrorEllipse(self, img, center, pixelCovariance, confidence=5.991, color=(0,0,255), displayAxis=True):
+    def __plotErrorEllipse(self, img, center, pixelCovariance, confidence=5.991, color=(0,0,255), displayAxis=True):
         lambdas, vs = np.linalg.eig(pixelCovariance)
         l1, l2 = lambdas
         v1, v2 = vs
@@ -95,7 +95,7 @@ class PoseSimulation:
 
         img = 255*np.ones(self.camera.resolution, dtype=np.int8)
         img = np.stack((img,)*3, axis=-1)
-        img = img.astype(np.uint8)
+        img = img.astype(np.uint8)*0
         cv.imshow("feature model modification", img)
 
         points3D = []
@@ -162,11 +162,11 @@ class PoseSimulation:
                 sigmaUV2 = sigma**2*fx*fy*X*Y/Z**4
                 pixelCovariance = np.array([[sigmaU2, sigmaUV2], 
                                             [sigmaUV2, sigmaV2]])
-                self.plotErrorEllipse(imgTemp, tuple(p2D), pixelCovariance, confidence=confidence, color=(0,0,255), displayAxis=False)
-
+                major, minor, angle = plotErrorEllipse(imgTemp, tuple(p2D), pixelCovariance, confidence=confidence, color=(0,0,255), displayAxis=False)
+                
             
             tempNoisedProjPoints.append(projPointsNoised[0])
-            tempNoisedProjPoints = tempNoisedProjPoints[-1000:]
+            tempNoisedProjPoints = tempNoisedProjPoints[-100:]
 
             valid, invalid = self.calcValidPoints(tempNoisedProjPoints, points3D[0], projPoints[0], sigma, mahaDistThresh=mahaDistThresh)
 
@@ -176,7 +176,13 @@ class PoseSimulation:
 
             pixelCovarianceEst = np.cov(tempNoisedProjPoints, rowvar=False)
             if len(tempNoisedProjPoints) > 1:
-                self.plotErrorEllipse(imgTemp, tuple(projPoints[0]), pixelCovarianceEst, confidence=confidence, color=(0,0,255))
+                major, minor, angle = plotErrorEllipse(imgTemp, tuple(projPoints[0]), pixelCovarianceEst, confidence=confidence, color=(0,0,255))
+                pixelCovarianceTest = ellipseToCovariance(major, minor, angle, confidence)
+                plotErrorEllipse(imgTemp, tuple(projPoints[0]), pixelCovarianceTest, confidence=confidence, color=(255,0,255))
+                
+                #assert pixelCovariance[0,0] == pixelCovarianceTest[0,0]
+                #assert pixelCovariance[0,1] == pixelCovarianceTest[0,1]
+                #assert pixelCovariance[1,1] == pixelCovarianceTest[1,1]
 
             #pCovInv = np.linalg.inv(pCov)
             #mahaDist = np.matmul(np.matmul(err.transpose(), pCovInv), err)
@@ -201,4 +207,6 @@ if __name__ =="__main__":
     camera.distCoeffs *= 0
 
     sim = PoseSimulation(camera=camera)
-    sim.test(uncertainty=0.06, confidence=5.991)
+    sim.test(uncertainty=0.06, 
+             confidence=5.991
+             )

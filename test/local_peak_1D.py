@@ -37,9 +37,30 @@ def medianBlur(y, kernelSize):
 
     return np.array(yBlur)
 
+def localMax1D(y, kernelSize):
+    assert kernelSize % 2 == 1, "Kernel size has to be uneven"
+    localMax = []
+    rad = int(kernelSize/2.0)
+    print("RAD", rad)
+    for i, v in enumerate(y):
+
+        startIdx = max(0, i-rad)
+        if all(y[startIdx:i+rad+1] <= v):
+            localMax.append(i)
+
+        if i == 50:
+            print(y[startIdx:i+rad+1])
+
+    return localMax
+
 def localPeak(y, blurSize, locMaxSize, p):
     # local max on non-blured image
-    locMaxIdxs = list(signal.find_peaks(y, width=locMaxSize)[0])
+    if locMaxSize > 1:
+        #locMaxIdxs = list(signal.find_peaks(y, width=locMaxSize)[0])
+        locMaxIdxs = localMax1D(y, locMaxSize)
+    else:
+        locMaxIdxs = list(range(len(y)))
+
     if blurSize > 0:
         y = gaussianBlur(y, blurSize)
 
@@ -55,14 +76,14 @@ def localPeak(y, blurSize, locMaxSize, p):
     edgePeaks = []
     iterations = 0
     while True:
-        iterations += 1
         #print(locMaxTemp)
         maxIdx = np.argmax(locMaxTemp)
         maxI = locMaxTemp[maxIdx]
         
-        
         if maxI <= 0:
             break
+
+        iterations += 1
         threshold = maxI*p
 
         # find left side of peak
@@ -124,8 +145,9 @@ if __name__ == "__main__":
     ambient = lambda x: gaussian(x, 212, 60)*400
 
 
-    x = np.arange(0, 200, 0.1)
-    
+    x = np.arange(0, 200, .1)
+    xDiscrete = np.array(range(len(x)))
+
     noiseFuncs = []
     for i in range(100):
         mean = np.random.randint(1, 200)
@@ -143,27 +165,32 @@ if __name__ == "__main__":
 
     yNoised = (yTrue + noise + gaussNoise)
     
-    locMaxSize = 7
+    locMaxSize = 1 # 81 (good) 161 (too large)
     blurSize = 3 # 3
     p = .955
 
-    peaks, removedPeaks, edgePeaks, yPeak, locMax = localPeak(yNoised, blurSize, locMaxSize, p=p)
-    plt.scatter(x[np.nonzero(locMax)], locMax[np.nonzero(locMax)], color="g")
-    plt.fill_between(x, yPeak, alpha=0.4, interpolate=True, color="b")
+    yNoised = gaussianBlur(yNoised, kernelSize=3)
 
-    plt.vlines(loc1, ymin=0, ymax=yNoised[np.where(x == loc1)], colors="black")
-    plt.vlines(loc2, ymin=0, ymax=yNoised[np.where(x == loc2)], colors="black")
-    plt.vlines(loc3, ymin=0, ymax=yNoised[np.where(x == loc3)], colors="black")
+    peaks, removedPeaks, edgePeaks, yPeak, locMax = localPeak(yNoised, 0, locMaxSize, p=p)
+
+    print("# found peaks:", len(peaks))
+    print("# local max:", len(locMax))
+    
+    plt.scatter(xDiscrete[np.nonzero(locMax)], locMax[np.nonzero(locMax)], color="g")
+    plt.fill_between(xDiscrete, yPeak, alpha=0.4, interpolate=True, color="b")
+
+    plt.vlines(np.where(x == loc1), ymin=0, ymax=yNoised[np.where(x == loc1)], colors="black")
+    plt.vlines(np.where(x == loc2), ymin=0, ymax=yNoised[np.where(x == loc2)], colors="black")
+    plt.vlines(np.where(x == loc3), ymin=0, ymax=yNoised[np.where(x == loc3)], colors="black")
+
     plt.xlabel("1D pixel")
     plt.ylabel("Intensity")
     plt.legend(["local max"])
-    
     #ax = plt.gca()
     #ax.add_patch(Rectangle((61,200), 7.5, 30, fill=False, edgecolor="black"))
 
     plt.figure()
-    plt.scatter(x[np.nonzero(locMax)], locMax[np.nonzero(locMax)], color="g", label="local max")
-
+    #plt.scatter(xDiscrete[np.nonzero(locMax)], locMax[np.nonzero(locMax)], color="g", label="local max")
 
     if True:
         legend = {"b": "found", "r":"overlapping", "y":"edge"}
@@ -174,24 +201,25 @@ if __name__ == "__main__":
                 ridx = peak[2]
 
                 label = legend[color] if i == 0 else None
-                plt.scatter(x[idx], yPeak[idx], color=color, label=label)
+                plt.scatter(xDiscrete[idx], yPeak[idx], color=color, label=label)
                 
                 threshold = yPeak[idx]*p
-                plt.hlines(threshold, xmin=x[idx-lidx], xmax=x[idx+ridx], colors=color)
+                plt.hlines(threshold, xmin=xDiscrete[idx-lidx], xmax=xDiscrete[idx+ridx], colors=color)
                 
-                plt.vlines(x[idx], ymin=threshold, ymax=yPeak[idx], colors=color)
+                plt.vlines(xDiscrete[idx], ymin=threshold, ymax=yPeak[idx], colors=color)
 
                 # adjust center with centroid
                 if color == "b":
                     center = int((idx-lidx + (ridx+lidx)/2.0))
                     label = "adjusted center" if i == 0 else None
-                    plt.scatter(x[center], yPeak[idx], color="purple", label=label)
+                    plt.scatter(xDiscrete[center], yPeak[idx], color="purple", label=label)
 
-    plt.fill_between(x, yPeak, alpha=0.4, interpolate=True, color="b")
-    plt.vlines(loc1, ymin=0, ymax=yNoised[np.where(x == loc1)], colors="black")
-    plt.vlines(loc2, ymin=0, ymax=yNoised[np.where(x == loc2)], colors="black")
-    plt.vlines(loc3, ymin=0, ymax=yNoised[np.where(x == loc3)], colors="black")
+    plt.fill_between(xDiscrete, yPeak, alpha=0.4, interpolate=True, color="b")
+    plt.vlines(np.where(x == loc1), ymin=0, ymax=yNoised[np.where(x == loc1)], colors="black")
+    plt.vlines(np.where(x == loc2), ymin=0, ymax=yNoised[np.where(x == loc2)], colors="black")
+    plt.vlines(np.where(x == loc3), ymin=0, ymax=yNoised[np.where(x == loc3)], colors="black")
+
     plt.xlabel("1D pixel")
     plt.ylabel("Intensity")
-    
+    plt.legend()
     plt.show()

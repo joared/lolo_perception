@@ -1,6 +1,11 @@
-model_name: donn_light
-features: ["polygon", 1, 8, 1] # [..., rad, n, shift]
-placement_uncertainty: 0 # default uncertainty will be used if 0 (check feature_model/FeatureModel)
-detection_tolerance: 0.25 #0.09 # default uncertainty will be used if 0 (check feature_model/FeatureModel)
+#model_name: donn_light
+#features: ["polygon", 1, 8, 1] # [..., rad, n, shift]
+#placement_uncertainty: 0 # default uncertainty will be used if 0 (check feature_model/FeatureModel)
+#detection_tolerance: 0.25 #0.09 # default uncertainty will be used if 0 (check feature_model/FeatureModel)
 # 0.5 radius and 0.1 detection tolerance when testing
 
+model_name: donn_light
+features: ["circle", 1.061, 63, 27, 333, 297, 243, 207, 153, 117] # [..., rad[m], deg1, deg2, ...]
+placement_uncertainty: 0 # default uncertainty will be used if 0 (check feature_model/FeatureModel)
+detection_tolerance: 0.2 #0.09 # default uncertainty will be used if 0 (check feature_model/FeatureModel)
+# 0.5 radius and 0.1 detection tolerance when testing

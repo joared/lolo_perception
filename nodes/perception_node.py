@@ -61,6 +61,8 @@ class PerceptionNode:
         self._cameraPoseMsg = None
         self.cameraPoseSub = rospy.Subscriber("lolo/camera/pose", PoseWithCovarianceStamped, self._cameraPoseSub)
 
+        self.hzs = []
+
     def _getCameraCallback(self, msg):
         """
         Use either K and D or just P
@@ -69,7 +71,11 @@ class PerceptionNode:
         """
         from lolo_perception.camera_model import Camera
         # Using only P (D=0), we should subscribe to the rectified image topic
-        camera = Camera(cameraMatrix=np.array(msg.P, dtype=np.float32).reshape((3,4))[:, :3], 
+        projectionMatrix = np.array(msg.P, dtype=np.float32).reshape((3,4))[:, :3]
+        #scale = 1.36
+        #projectionMatrix[0,0] *= scale
+        #projectionMatrix[1,1] *= scale
+        camera = Camera(cameraMatrix=projectionMatrix, 
                         distCoeffs=np.zeros((1,4), dtype=np.float32),
                         resolution=(msg.height, msg.width))
         # Using K and D, we should subscribe to the raw image topic
@@ -120,6 +126,11 @@ class PerceptionNode:
         virtualHZ = 1./elapsed
         hz = min(self.hz, virtualHZ)
 
+        #if dsPose:
+        self.hzs.append(virtualHZ)
+    
+        print("Average FPS:", sum(self.hzs)/float(len(self.hzs)))
+
         cv.putText(poseImg, 
                    "FPS {}".format(round(hz, 1)), 
                    (int(poseImg.shape[1]*4/5), 25), 
@@ -167,11 +178,12 @@ class PerceptionNode:
                 self.mahalanobisDistPub.publish(Float32(dsPose.mahaDist))
 
             if publishCamPose:
-                print("!!!Publishing cam pose with covariance!!!")
+                print("!!!Publishing cam pose with no covariance!!!")
                 self.camPosePublisher.publish(
                     vectorToPose("docking_station_link", 
                     dsPose.camTranslationVector, 
                     dsPose.camRotationVector, 
+                    #np.eye(6)*0.00001, 
                     dsPose.calcCamPoseCovariance(),
                     timeStamp=timeStamp)
                     )
@@ -230,8 +242,8 @@ class PerceptionNode:
                     show = True
 
                     img = self.perception.poseImg
-                    if img.shape[0] > 720:
-                        cv.resize(img, (1280,720))
+                    #if img.shape[0] > 720:
+                    img = cv.resize(img, (640,360))
                     cv.imshow("pose image", img)
 
                 if self.perception.processedImg is not None:
@@ -239,7 +251,7 @@ class PerceptionNode:
                     
                     img = self.perception.processedImg
                     if img.shape[0] > 720:
-                        cv.resize(img, (1280,720))
+                        img = cv.resize(img, (1280,720))
                     cv.imshow("processed image", img)
 
                 if show:

@@ -22,6 +22,9 @@ def lmSolveRoutine(objectPoints, detectedPoints, camera, tVec, rVec, tVecGuess, 
     estCS = CoordinateSystemArtist()
 
     img = np.zeros((720, 1280, 3))
+    cv.imshow("img", img)
+    cv.waitKey(10)
+    plt.pause(5)
     for pose, lambdas, grads, errors in lmSolve(cameraMatrix, 
                                                 detectedPoints, 
                                                 objectPoints, 
@@ -58,9 +61,9 @@ def lmSolveRoutine(objectPoints, detectedPoints, camera, tVec, rVec, tVecGuess, 
         print(pose.round(2))
         cv.imshow("img", img)
         cv.waitKey(10)
-        plt.pause(.1)
+        plt.pause(.2)
         img *= 0
-    
+    print("Tranlsation error:", tVec-pose[:3])
     estCS.drawRelative(ax, camCS.cs, colors=(color,)*3, scale=1, alpha=1)
 
 def randomVec(rx, ry, rz):
@@ -128,9 +131,8 @@ if __name__ =="__main__":
     # symmetric planar polygon
     #objectPoints = np.array(polygon(1, 8, shift=False, zShift=0)[:, :-1])
     # 5 Lights
-    objectPoints = np.array([[1., 1., 0], [-1., 1., 0], [1., -1., 0], [-1., -1., 0], [0., -.0, -.5]])*.33
-    
-    
+    setupScale = 1
+    objectPoints = np.array([[1., 1., 0], [-1., 1., 0], [1., -1., 0], [-1., -1., 0], [0., -.0, -.5]])*.33*setupScale
 
     # Difficult pose
     tVec = np.array([-5., -5., 25.])
@@ -146,9 +148,9 @@ if __name__ =="__main__":
     np.random.seed(123456)
     lmIllustration(cameraMatrix, 
                    objectPoints, 
-                   np.array([0., 0., 12]), 
+                   np.array([0., 0., 12])*setupScale, 
                    np.array([0., np.deg2rad(30), 0.]),
-                   np.array([0., 0., 1.]),
+                   np.array([0., 0., 1.])*setupScale,
                    np.array([0., np.deg2rad(-160), 0.]),
                    sigmaX=2,
                    sigmaY=2,

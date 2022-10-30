@@ -14,12 +14,12 @@ class CameraDummy:
 if __name__ == "__main__":
     centerPoint = np.array([0., 0., -1.])
     objectPoints = np.array([centerPoint, [-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0]])*0.5
-    objectPoints = np.array([[-1., -1., 0.], [1., -1., 0.], [1., 1., 0.], [-1., 1., 0.]])*0.5
+    #objectPoints = np.array([[-1., -1., 0.], [1., -1., 0.], [1., 1., 0.], [-1., 1., 0.]])*0.5
     #objectPoints = np.array([[1., 2., -1.]])
     tVec = np.array([1., -1., 5.])
     rVec = np.array([0.1, np.pi/3, -0.3])
 
-    tVec = np.array([0., 0., 10.])*0.5
+    tVec = np.array([0., 0., 15.])
     rVec = np.array([0, 0, 0.])
 
     #rVec = np.array([0.1, 0, -0.3])
@@ -100,6 +100,7 @@ if __name__ == "__main__":
     print(Jmult)
     print(np.linalg.matrix_rank(jacobian))
     print(np.linalg.eig(Jmult))
+    print(np.linalg.eig(H))
 
 
     cv.imshow("img", img)

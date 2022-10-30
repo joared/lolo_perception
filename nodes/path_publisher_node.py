@@ -4,6 +4,7 @@ import rospy
 from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped
 from visualization_msgs.msg import Marker, MarkerArray
+
 class PathPublisher:
     def __init__(self, poseTopic="/pose_topic", pathTopic="/pose/path", markerTopic="/pose/ellipses"):
         rospy.Subscriber(poseTopic, PoseWithCovarianceStamped, self._poseCallback)
@@ -29,7 +30,8 @@ class PathPublisher:
         marker.color.g = 0.0
         marker.color.b = .5
         marker.color.a = .1
-        marker.pose = msg.pose.pose 
+        marker.pose = msg.pose.pose
+
         self.markerArray.markers.append(marker)
         self.path.poses.append(p)
         
@@ -52,5 +54,6 @@ class PathPublisher:
 
 if __name__ == "__main__":
     rospy.init_node("path_publisher_node")
+
     pathPub = PathPublisher()
     pathPub.run()
