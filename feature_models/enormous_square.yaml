@@ -1,8 +1,0 @@
-model_name: big_square
-features: [[-1., -1., 0], 
-           [1, -1, 0],
-           [1, 1, 0], 
-           [-1, 1, 0]]
-placement_uncertainty: 0 # default uncertainty will be used if 0 (check feature_model/FeatureModel)
-detection_tolerance: 0 # default uncertainty will be used if 0 (check feature_model/FeatureModel)
-

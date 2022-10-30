@@ -1,8 +1,0 @@
-model_name: tilted_square
-features: [[-.5, -.5, .3], 
-           [.5, -.5, .3],
-           [.5, .5, -.3], 
-           [-.5, .5, -.3]]
-placement_uncertainty: 0 # default uncertainty will be used if 0 (check feature_model/FeatureModel)
-detection_tolerance: 0 # default uncertainty will be used if 0 (check feature_model/FeatureModel)
-
