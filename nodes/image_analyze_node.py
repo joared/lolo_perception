@@ -17,17 +17,14 @@ from geometry_msgs.msg import PoseArray
 
 from lolo_perception.camera_model import Camera
 from lolo_perception.perception_ros_utils import readCameraYaml, msgToImagePoints
-from lolo_perception.feature_extraction import contourRatio, MeanShiftTracker, LightSourceTracker, RCFS, RCF, findPeakContourAt, circularKernel, LightSourceTrackInitializer, localMax, localMaxSupressed, localMaxSupressed2, localMaxChange, removeContoursOnEdges
+from lolo_perception.image_processing import contourRatio, LightSourceTrackInitializer, LightSourceTracker, RCFS, RCF, findPeakContourAt, circularKernel, localMax, localMaxSupressed, localMaxSupressed2, localMaxChange, removeContoursOnEdges
 from lolo_perception.perception_utils import plotHistogram, imageROI, regionOfInterest
 
 from lolo_perception.pose_estimation import calcPoseCovarianceFixedAxis
 
 # for _analyzeImage
-from lolo_perception.feature_extraction import ModifiedHATS, findNPeaks2, peakThresholdMin, LoG, contourCentroid, AdaptiveThresholdPeak, GradientFeatureExtractor, findAllPeaks, findPeaksDilation, peakThreshold, AdaptiveThreshold2, circularKernel, removeNeighbouringContours, removeNeighbouringContoursFromImg, AdaptiveOpen, maxShift, meanShift, drawInfo, medianContourAreaFromImg, findMaxPeaks, findMaxPeak
+from lolo_perception.image_processing import findNPeaks2, peakThresholdMin, contourCentroid, findAllPeaks, findPeaksDilation, peakThreshold, circularKernel, removeNeighbouringContours, removeNeighbouringContoursFromImg, maxShift, meanShift, drawInfo, medianContourAreaFromImg, findMaxPeaks, findMaxPeak
 
-import scipy
-import scipy.ndimage as ndimage
-import scipy.ndimage.filters as filters
 
 def drawErrorCircle(img, errCircle, i, color, font=cv.FONT_HERSHEY_SIMPLEX, fontScale=1, thickness=1, delta=5):
     (x, y, r) = errCircle
@@ -529,7 +526,7 @@ class ImageAnalyzeNode:
                 self._coordinatePressed = (0, 0)
 
     def _testProcessImage(self, gray):
-        from lolo_perception.feature_extraction import AdaptiveThreshold2, contourCentroid, RCF, drawInfo
+        from lolo_perception.image_processing import AdaptiveThreshold2, contourCentroid, RCF, drawInfo
         from matplotlib.pyplot import cm
 
         adaThres = AdaptiveThreshold2(5)
@@ -1285,7 +1282,6 @@ class ImageAnalyzeNode:
         if i == 0:
             print("No image messages with topic '{}' found".format(imageRawTopic))
 
-
     def analyzeRosbagImages(self, datasetPath, labelFile, rosbagPath, imageRawTopic, startFrame=1, analyzeImages=True, waitForFeatureExtractor=False):
         self._anaLyzeImages(datasetPath, labelFile, lambda: self._rosbagImageGenerator(rosbagPath, imageRawTopic, startFrame), analyzeImages, waitForFeatureExtractor=waitForFeatureExtractor)
 
@@ -1315,7 +1311,7 @@ if __name__ == "__main__":
     #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/171121/171121_angle_test.MP4")
     #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/FILE0197.MP4")
     #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/271121/271121_5planar_1080p.MP4")
-    #imgLabelNode.analyzeVideoImages(datasetPath, labelFile, videoPath, startFrame=350, analyzeImages=True, waitForFeatureExtractor=False) #350
+    #imgLabelNode.analyzeVideoImages(datasetPath, labelFile, videoPath, startFrame=350, analyzeImages=False, waitForFeatureExtractor=False) #350
 
     # DoNN dataset
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/donn_camera.yaml")
@@ -1331,7 +1327,13 @@ if __name__ == "__main__":
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/usb_camera_720p_8.yaml")
     rosbagFile = "ice.bag"
     rosbagPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), join("rosbags", rosbagFile))
-    #imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "lolo_camera/image_raw", startFrame=1200, analyzeImages=False, waitForFeatureExtractor=False) # 1200
+    imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "lolo_camera/image_raw", startFrame=1200, analyzeImages=False, waitForFeatureExtractor=False) # 1200
+
+    imgLabelNode = ImageAnalyzeNode("camera_calibration_data/usb_camera_720p_8.yaml")
+    rosbagFile = "test_session_5mm_led_prototype/pos_1.bag"
+    rosbagPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), join("rosbags", rosbagFile))
+    #imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "/lolo_camera/image_raw", startFrame=1, analyzeImages=False, waitForFeatureExtractor=False) # 1200
+
 
     # For Aldo
     cameraYaml = "camera_calibration_data/kristineberg.yaml" # In /camera_calibration_data
@@ -1353,7 +1355,7 @@ if __name__ == "__main__":
 
     # Side cameras
     #rosbagFile = "2022-06-09-19-44-50.bag"
-    rosbagFile = "2022-06-09-19-40-10.bag"
+    rosbagFile = "kristineberg.bag"
     cameraYaml = "camera_calibration_data/csi_cam_1.yaml"
     topic = "/sam/perception/csi_cam_1/camera/image_raw/compressed"
     #cameraYaml = "camera_calibration_data/csi_cam_2.yaml"
@@ -1362,4 +1364,4 @@ if __name__ == "__main__":
 
     rosbagPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), join("rosbags", rosbagFile))
     imgLabelNode = ImageAnalyzeNode(cameraYaml)
-    imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, topic, startFrame=startFrame, analyzeImages=False, waitForFeatureExtractor=False)
+    #imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, topic, startFrame=startFrame, analyzeImages=False, waitForFeatureExtractor=False)

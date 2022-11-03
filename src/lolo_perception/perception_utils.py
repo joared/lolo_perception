@@ -46,15 +46,19 @@ def plotPoseImageInfo(poseImg,
         validYaw, validPitch, validRoll = dsPose.validOrientation(*validOrientationRange)
         validOrientation = validYaw and validPitch and validRoll
 
-    if poseAquired:
+    if dsPose:
         axisColor = None
-        roiColor = (0, 255, 0)
+        if poseAquired:
+            roiColor = (0, 255, 0)
+        else:
+            roiColor = (255, 255, 255)
         if not validOrientation:
             axisColor = (0, 0, 255)
             roiColor = (0, 0, 255)
         if roiCnt is not None:
             cv.drawContours(poseImg, [roiCnt], -1, (100,100,100), 3)
         if roiCntUpdated is not None:
+
             cv.drawContours(poseImg, [roiCntUpdated], -1, roiColor, 3)
             
             cv.putText(poseImg, 
@@ -93,7 +97,8 @@ def plotPoseImageInfo(poseImg,
             yEnd = roiCntUpdated[1][1]
             
             cv.rectangle(poseImg, (xStart, yStart), (xEnd, int(mahaDistRatio*(yEnd - yStart)) + yStart), color=(0,0,255), thickness=-1)
-        if dsPose:
+
+        if poseAquired and dsPose: # redundancy
             plotAxis(poseImg, 
                     dsPose.translationVector, 
                     dsPose.rotationVector, 
@@ -131,8 +136,9 @@ def plotPoseImageInfo(poseImg,
                       color=(0,255,0), 
                       thickness=2, 
                       lineType=cv.LINE_AA)
-            
-            
+
+    if roiCntUpdated is not None and progress < 1:
+        drawProgressROI(poseImg, progress, roiCntUpdated)
 
     if dsPose:
         """
@@ -177,6 +183,52 @@ def plotPoseImageInfo(poseImg,
     yEnd = yStart - 200
     cv.line(poseImg, (xStart, yStart), (xEnd, yEnd), (255,255,255), 15)
     cv.line(poseImg, (xStart, yStart), (xEnd, int(progress*(yEnd - yStart)) + yStart), (0,255,0), 10)
+
+def drawProgressROI(poseImg, progress, roiCnt, clockwise=True):
+    """
+    [0][0/1] - top left x/y
+    [1][0/1] - top right x/y
+    [2][0/1] - bottom right x/y
+    [3][0/1] - bottom left x/y
+    """
+    w = roiCnt[1][0] - roiCnt[0][0]
+    h = roiCnt[3][1] - roiCnt[0][1]
+    tot = 2*w + 2*h
+    w_norm = w/float(tot)
+    h_norm = h/float(tot)
+
+    drawPoints = []
+
+    progressTemp = progress
+    for i, l in enumerate([w_norm, h_norm, w_norm, h_norm]):
+        p1 = roiCnt[i][0], roiCnt[i][1]
+        if i == 3:
+            p2 = roiCnt[0][0], roiCnt[0][1]
+        else:
+            p2 = roiCnt[i+1][0], roiCnt[i+1][1]
+
+            if progressTemp < l:
+                if i == 0:
+                    p2 = p2[0]-progressTemp*tot, p2[1]
+                elif i == 1:
+                    p2 = p2[0], p2[1]-progressTemp*tot
+                elif i == 2:
+                    p2 = p2[0]+progressTemp*tot, p2[1]
+                else:
+                    p2 = p2[0], p2[1]+progressTemp*tot
+
+        p2 = int(p2[0]), int(p2[1])
+        cv.line(poseImg, p1, p2, (0,255,0), 3)
+        progressTemp -= l
+        tot -= l
+        if progressTemp < 0:
+            return
+
+def progressToIndex(progress, w_norm, h_norm):
+    if progress < w_norm: return 0
+    elif progress < w_norm + h_norm: return 1
+    elif progress < 2*w_norm + h_norm: return 2
+    else: return 3
 
 def plotErrorEllipses(img, dsPose, color=(0,0,255), displayReferenceSphere=False):
     for center, pixelCov in zip(dsPose.reProject(), dsPose.pixelCovariances):

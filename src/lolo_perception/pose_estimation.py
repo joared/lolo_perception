@@ -8,7 +8,7 @@ from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
 import scipy
 from lolo_perception.perception_utils import projectPoints, reprojectionError
-from lolo_perception.feature_extraction import featureAssociation, withinContour
+from lolo_perception.image_processing import featureAssociation, withinContour
 
 
 from lolo_perception.reprojection_utils import calcPoseReprojectionRMSEThreshold, calcPoseReprojectionThresholds

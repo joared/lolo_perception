@@ -82,7 +82,7 @@ class FeatureModel:
     @staticmethod
     def fromYaml(yamlPath):
         with open(yamlPath, "r") as file:
-            featureModelData = yaml.load(file)
+            featureModelData = yaml.safe_load(file)
 
         features = featureModelData["features"]
         if features[0] == "polygon":
