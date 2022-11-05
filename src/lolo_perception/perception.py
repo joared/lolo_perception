@@ -54,7 +54,7 @@ class Perception:
             blurKernelSize = 5 #5
             localMaxKernelSize = 11 # 11
 
-        minCircleExtent = 0.2 # 0.55 for underwater, 0 when above ground (set low during heavy motion blur)
+        minCircleExtent = 0.55 # 0.55 for underwater, 0 when above ground (set low during heavy motion blur)
         self.maxIntensityChange = 0.7
         self.toHATSScale = 3 #3 # change to HATS when min area > minArea*areaScale
         self.toPeakScale = 1.5 # change back to peak when min area < minArea*areaScale
@@ -237,10 +237,7 @@ class Perception:
                 #lightCandidateCombinations.sort(key=lambda comb: (sum([ls.intensity for ls in comb]), sum([ls.area for ls in comb])), reverse=True)
                 lightCandidateCombinations.sort(key=lambda comb: (sum([ls.intensity for ls in comb]), sum([ls.circleExtent() for ls in comb])), reverse=True)
             else:
-                # using some other 
-                print("sorting by intensity, then area")
-                lightCandidateCombinations.sort(key=lambda comb: (sum([ls.intensity for ls in comb]), sum([ls.area for ls in comb])), reverse=True)
-
+                raise Exception("Not ANYMORE!")
 
             associatedCombinations = AssociateCombinationGenerator(lightCandidateCombinations, 
                                                                    self.associationFunc)
@@ -282,19 +279,19 @@ class Perception:
             poseEstMethod = poseEstFlag
             
         # plots pose axis, ROI, light sources etc. 
-        plotPoseImageInfo(poseImg,
-                          self,
-                          "{}".format("HATS" if self.featureExtractor == self.hatsFeatureExtractor else "Peak"),
-                          dsPose,
-                          self.camera,
-                          self.featureModel,
-                          poseAquired,
-                          self.validOrientationRange,
-                          poseEstMethod,
-                          roiCnt,
-                          roiCntUpdated,
-                          progress=progress,
-                          fixedAxis=False)
+        poseImg = plotPoseImageInfo(poseImg,
+                                    self,
+                                    "{}".format("HATS" if self.featureExtractor == self.hatsFeatureExtractor else "Peak"),
+                                    dsPose,
+                                    self.camera,
+                                    self.featureModel,
+                                    poseAquired,
+                                    self.validOrientationRange,
+                                    poseEstMethod,
+                                    roiCnt,
+                                    roiCntUpdated,
+                                    progress=progress,
+                                    fixedAxis=False)
 
         if roiCntUpdated is not None:# TODO: remove
             #processedImg = imgColor.copy()

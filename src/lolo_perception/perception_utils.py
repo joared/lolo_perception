@@ -19,6 +19,12 @@ def plotPoseImageInfo(poseImg,
                       progress=0,
                       fixedAxis=False):
 
+    if roiCntUpdated is not None:
+        poseImgTmp = poseImg.copy()
+        poseImg = poseImg*(1 - progress*0.5)
+        poseImg = poseImg.astype(np.uint8)
+
+        poseImg[roiCntUpdated[0][1]:roiCntUpdated[3][1], roiCntUpdated[0][0]:roiCntUpdated[1][0], :] = poseImgTmp[roiCntUpdated[0][1]:roiCntUpdated[3][1], roiCntUpdated[0][0]:roiCntUpdated[1][0], :]
 
     cv.putText(poseImg, 
                titleText, 
@@ -80,23 +86,20 @@ def plotPoseImageInfo(poseImg,
 
 
             # mahanalobis distance meter
-            mahaDistRatio = dsPose.mahaDist/dsPose.mahaDistThresh
-
-            """
-            xStart = roiCntUpdated[2][0]+8
-            yStart = roiCntUpdated[2][1]
-            xEnd = xStart
-            yEnd = roiCntUpdated[1][1]
-            
-            cv.line(poseImg, (xStart, yStart), (xEnd, int(mahaDistRatio*(yEnd - yStart)) + yStart), (0,0,255), 10)
-            """
+            mahaDistRatio = 1
+            if dsPose.mahaDist:
+                mahaDistRatio = dsPose.mahaDist/dsPose.mahaDistThresh
 
             xStart = roiCntUpdated[2][0]+3
             yStart = roiCntUpdated[2][1]+2
             xEnd = xStart + 10
             yEnd = roiCntUpdated[1][1]
             
-            cv.rectangle(poseImg, (xStart, yStart), (xEnd, int(mahaDistRatio*(yEnd - yStart)) + yStart), color=(0,0,255), thickness=-1)
+            cv.rectangle(poseImg, 
+                         (xStart, yStart), 
+                         (xEnd, int(mahaDistRatio*(yEnd - yStart)) + yStart), 
+                         color=(0, 0, 255) if dsPose.mahaDist else (0, 140, 255), 
+                         thickness=-1)
 
         if poseAquired and dsPose: # redundancy
             plotAxis(poseImg, 
@@ -108,52 +111,13 @@ def plotPoseImageInfo(poseImg,
                     color=axisColor,
                     thickness=5,
                     fixedAxis=fixedAxis) 
-            
-            # Some reprojection uncertainty stuff
-            cv.putText(poseImg, 
-                      "RMSE: {} < {}".format(round(dsPose.rmse, 2), round(dsPose.rmseMax, 2)), 
-                      (20, 200), 
-                      cv.FONT_HERSHEY_SIMPLEX, 
-                      .8, 
-                      color=(0,255,0), 
-                      thickness=2, 
-                      lineType=cv.LINE_AA)
 
-            cv.putText(poseImg, 
-                      "RMSE certainty: {}".format(round(1-dsPose.rmse/dsPose.rmseMax, 2)), 
-                      (20, 220), 
-                      cv.FONT_HERSHEY_SIMPLEX, 
-                      .8, 
-                      color=(0,255,0), 
-                      thickness=2, 
-                      lineType=cv.LINE_AA)
-
-            cv.putText(poseImg, 
-                      "Err certainty: {}".format(round(dsPose.reprErrMinCertainty(), 2)), 
-                      (20, 240), 
-                      cv.FONT_HERSHEY_SIMPLEX, 
-                      .8, 
-                      color=(0,255,0), 
-                      thickness=2, 
-                      lineType=cv.LINE_AA)
+            # TODO: plot uncertainty based on reprojection error
 
     if roiCntUpdated is not None and progress < 1:
         drawProgressROI(poseImg, progress, roiCntUpdated)
 
     if dsPose:
-        """
-        # "Cone angle"
-        coneX = np.rad2deg(np.arctan(abs(dsPose.translationVector[0]) / abs(dsPose.translationVector[2])))
-        coneY = np.rad2deg(np.arctan(abs(dsPose.translationVector[1]) / abs(dsPose.translationVector[2])))
-        org = 10, camera.resolution[0]-10
-        cv.putText(poseImg, 
-                    "Cone angle x: {}, y: {}".format(round(coneX), round(coneY)), 
-                    org, 
-                    cv.FONT_HERSHEY_SIMPLEX, 
-                    fontScale=1, 
-                    thickness=2, 
-                    color=(0,0,255))
-        """
         #plotMaxReprojection(poseImg, dsPose)
         plotErrorEllipses(poseImg, 
                           dsPose,
@@ -183,6 +147,8 @@ def plotPoseImageInfo(poseImg,
     yEnd = yStart - 200
     cv.line(poseImg, (xStart, yStart), (xEnd, yEnd), (255,255,255), 15)
     cv.line(poseImg, (xStart, yStart), (xEnd, int(progress*(yEnd - yStart)) + yStart), (0,255,0), 10)
+
+    return poseImg
 
 def drawProgressROI(poseImg, progress, roiCnt, clockwise=True):
     """

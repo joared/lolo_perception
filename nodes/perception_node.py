@@ -176,8 +176,8 @@ class PerceptionNode:
                     vectorToPose("docking_station_link", 
                     dsPose.camTranslationVector, 
                     dsPose.camRotationVector, 
-                    #np.eye(6)*0.00001, 
-                    dsPose.calcCamPoseCovariance(),
+                    np.eye(6)*0.00001, 
+                    #dsPose.calcCamPoseCovariance(),
                     timeStamp=timeStamp)
                     )
 

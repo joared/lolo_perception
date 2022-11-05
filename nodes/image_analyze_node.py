@@ -1066,8 +1066,6 @@ class ImageAnalyzeNode:
                     covElapsed = 0.1
                     if timeitNumber > 0:
                         def covCalc():
-                            dsPose._rmse = None
-                            dsPose.calcRMSE()
                             calcPoseCovarianceFixedAxis(dsPose.camera, 
                                                         dsPose.featureModel, 
                                                         dsPose.translationVector, 
@@ -1327,7 +1325,7 @@ if __name__ == "__main__":
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/usb_camera_720p_8.yaml")
     rosbagFile = "ice.bag"
     rosbagPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), join("rosbags", rosbagFile))
-    imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "lolo_camera/image_raw", startFrame=1200, analyzeImages=False, waitForFeatureExtractor=False) # 1200
+    #imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "lolo_camera/image_raw", startFrame=1200, analyzeImages=False, waitForFeatureExtractor=False) # 1200
 
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/usb_camera_720p_8.yaml")
     rosbagFile = "test_session_5mm_led_prototype/pos_1.bag"
@@ -1364,4 +1362,4 @@ if __name__ == "__main__":
 
     rosbagPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), join("rosbags", rosbagFile))
     imgLabelNode = ImageAnalyzeNode(cameraYaml)
-    #imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, topic, startFrame=startFrame, analyzeImages=False, waitForFeatureExtractor=False)
+    imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, topic, startFrame=startFrame, analyzeImages=False, waitForFeatureExtractor=False)

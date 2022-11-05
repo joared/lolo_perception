@@ -1372,14 +1372,12 @@ def featureAssociationSquareImprovedWithFilter(featurePoints, detectedLightSourc
     wTop = topRight.center[0]-topLeft.center[0]
     wBottom = bottomRight.center[0]-bottomLeft.center[0]
     if abs(wTop-wBottom) > max(wTop, wBottom)*p:
-        print("IGNORED NON-Square")
         return None, []
 
     # check if height is similar
     hLeft = bottomLeft.center[1]-topLeft.center[1]
     hRight = bottomRight.center[1]-topRight.center[1]
     if abs(hLeft-hRight) > max(hLeft, hRight)*p:
-        print("IGNORED NON-Square")
         return None, []
 
     associatedLightSources = [None]*len(featurePoints)
