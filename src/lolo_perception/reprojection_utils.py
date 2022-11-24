@@ -72,7 +72,7 @@ def plotCamera(img, center, f, fScale, xMax):
     focalLine = center, toValidPixel((center[0], center[1]+f*fScale))
     cv.line(img, focalLine[0], focalLine[1], color=(255,0,0))
 
-def plotReprojection(points, cameraResolution, f, deltaE, rangeMeter, fScale=1./30):
+def plotReprojection(points, cameraResolution, f, deltaE, rangeMeter, fScale=1./30, plotReprojection=False):
     #zMax = (img.shape[0]-1)
     maxPixel = cameraResolution[1] # TODO: fx only considered, fy should be too
     center = maxPixel/2, 0
@@ -84,7 +84,9 @@ def plotReprojection(points, cameraResolution, f, deltaE, rangeMeter, fScale=1./
     deltaE *= meter
     points *= meter
     points = [toValidPixel(p) for p in points]
-    plot2DReprojection(img, f, fScale, deltaE, center, points, calcErrPoint)
+
+    if plotReprojection:
+        plot2DReprojection(img, f, fScale, deltaE, center, points, calcErrPoint)
 
     img = cv.flip(img, 0)
     return img
@@ -218,6 +220,49 @@ def calcPoseReprojectionRMSEThreshold(translationVec, rotationVec, camera, featu
         cv.waitKey(1)
 
     return maxRMSE
+
+def plot2DView(translationVec, rotationVec, camera, featureModel):
+    rotMat = R.from_rotvec(rotationVec).as_dcm()
+
+    pointsX = []
+    for fp in featureModel.features:
+        point3D = np.matmul(rotMat, fp.transpose()) + translationVec.transpose()
+        pointsX.append((point3D[0], point3D[2]))
+
+    rangeMeter = featureModel.maxRad*40 # cover 40*max rad of the feature model
+    img = plotReprojection(np.array(pointsX), 
+                            camera.resolution, 
+                            camera.cameraMatrix[0, 0], 
+                            featureModel.uncertainty, 
+                            rangeMeter=rangeMeter,
+                            fScale=1./20)
+    img = cv.flip(img, 0)
+    
+    maxPixel = camera.resolution[1]
+    meter = camera.resolution[0]/rangeMeter
+    center = maxPixel/2, 0
+
+    center2D = translationVec[0]*meter, translationVec[2]*meter
+    center2D = toValidPixel(adjustToCenter(center, center2D))
+    # x-axis
+    xAxis = translationVec + np.matmul(rotMat, [featureModel.maxX, 0, 0])
+    xAxis = xAxis[0]*meter, xAxis[2]*meter
+    xAxis = toValidPixel(adjustToCenter(center, xAxis))
+    cv.line(img, center2D, xAxis, color=(0,0,255))
+
+    yAxis = translationVec + np.matmul(rotMat, [0, featureModel.maxX, 0])
+    yAxis = yAxis[0]*meter, yAxis[2]*meter
+    yAxis = toValidPixel(adjustToCenter(center, yAxis))
+    cv.line(img, center2D, yAxis, color=(0,255,0))
+
+    zAxis = translationVec + np.matmul(rotMat, [0, 0, featureModel.maxX])
+    zAxis = zAxis[0]*meter, zAxis[2]*meter
+    zAxis = toValidPixel(adjustToCenter(center, zAxis))
+    cv.line(img, center2D, zAxis, color=(255,0,0))
+
+    img = cv.flip(img, 0)
+
+    return img
 
 if __name__ == "__main__":
     cameraResolution = (720, 1280)

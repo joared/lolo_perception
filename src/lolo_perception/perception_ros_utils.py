@@ -9,7 +9,7 @@ import yaml
 import os
 import rospkg
 
-def vectorToPose(frameID, translationVector, rotationVector, covariance, timeStamp=None):
+def vectorToPose(frameID, translationVector, rotationVector, covariance=None, timeStamp=None):
     rotMat = R.from_rotvec(rotationVector).as_dcm()
     rotMatHom = np.hstack((rotMat, np.zeros((3, 1))))
     rotMatHom = np.vstack((rotMatHom, np.array([0, 0, 0, 1])))
@@ -24,7 +24,9 @@ def vectorToPose(frameID, translationVector, rotationVector, covariance, timeSta
                                 translationVector[1], 
                                 translationVector[2])
     p.pose.pose.orientation = Quaternion(*q)
-    p.pose.covariance = list(np.ravel(covariance))
+
+    if covariance is not None:
+        p.pose.covariance = list(np.ravel(covariance))
 
     return p
 

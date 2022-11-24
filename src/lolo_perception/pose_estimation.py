@@ -2,6 +2,7 @@
 import cv2 as cv
 import numpy as np
 import time
+import lolo_perception.py_logging as logging
 from matplotlib import pyplot as plt
 from mpl_toolkits import mplot3d
 from scipy.spatial.transform import Rotation as R
@@ -11,7 +12,7 @@ from lolo_perception.perception_utils import projectPoints, reprojectionError
 from lolo_perception.image_processing import featureAssociation, withinContour
 
 
-from lolo_perception.reprojection_utils import calcPoseReprojectionRMSEThreshold, calcPoseReprojectionThresholds
+from lolo_perception.reprojection_utils import calcPoseReprojectionRMSEThreshold, calcPoseReprojectionThresholds, NEW_calcPoseReprojectionRMSEThreshold
 from lolo_perception.pose_estimation_utils import lmSolve, interactionMatrix
 
 from numpy.linalg import lapack_lite
@@ -61,6 +62,8 @@ def calcImageCovariance(translationVector, rotationVector, camera, featureModel,
 
 def calcMahalanobisDist(estDSPose, dsPose, SInv=None):
     if SInv is None:
+        logging.error("This should not happen?")
+        #SInv = cv.invert(estDSPose.covariance, flags=cv.DECOMP_CHOLESKY)
         SInv = np.linalg.inv(estDSPose.covariance)
 
     translErr = estDSPose.translationVector - dsPose.translationVector
@@ -188,6 +191,56 @@ def calcPoseCovarianceFixedAxis(camera, featureModel, translationVector, rotatio
 
     return covariance
 
+def calcPoseCovarianceFixedAxis2(camera, featureModel, translationVector, rotationVector, pixelCovariance):
+    # pixelCovariance - 2x2 or Nx2x2 where N is the number of features
+
+    allCovariancesGiven = False
+    if len(pixelCovariance.shape) == 3:
+        assert pixelCovariance.shape == (len(featureModel.features),2,2), "Incorrect shape of pixelCovariance '{}', should be '{}'".format(pixelCovariance.shape, (len(featureModel.features),2,2))
+        allCovariancesGiven = True
+
+    # some magic to convert to fixed axis
+    r = R.from_rotvec(rotationVector)
+    featuresTemp = r.apply(featureModel.features)
+    rotationVector = np.array([0., 0., 0.])
+
+    _, jacobian = cv.projectPoints(featuresTemp, 
+                                   rotationVector.reshape((3, 1)), 
+                                   translationVector.reshape((3, 1)), 
+                                   camera.cameraMatrix, 
+                                   camera.distCoeffs)
+
+    rotJ = jacobian[:, :3]
+    transJ = jacobian[:, 3:6]
+    J = np.hstack((transJ, rotJ)) # reorder covariance as used in PoseWithCovarianceStamped
+
+    # How to rotate covariance: https://robotics.stackexchange.com/questions/2556/how-to-rotate-covariance
+
+    if allCovariancesGiven:
+        sigma = scipy.linalg.block_diag(*pixelCovariance)
+    else:
+        sigma = scipy.linalg.block_diag(*[pixelCovariance]*len(featureModel.features))
+
+
+    retval, sigmaInv = cv.invert(sigma, flags=cv.DECOMP_CHOLESKY)
+    
+    if not retval:
+        logging.error("Inversion of sigma failed with return value: {}".format(retval))
+    try:
+        # C = (J^T * S^-1 * J)^-1
+        
+        mult = np.matmul(np.matmul(J.transpose(), sigmaInv), J)
+        retval, covariance = cv.invert(mult, flags=cv.DECOMP_CHOLESKY)
+        
+        if not retval:
+            logging.error("Inversion of the hessian failed with return value: {}".format(retval))
+
+        #covariance = fastInverse(np.reshape(mult, (mult.shape[0], mult.shape[1], 1))).reshape(mult.shape)
+    except np.linalg.LinAlgError as e:
+        print("Singular matrix")
+
+    return covariance
+
 def calcPoseCovariance(camera, featureModel, translationVector, rotationVector, pixelCovariance):
     _, jacobian = cv.projectPoints(featureModel.features, 
                                    rotationVector.reshape((3, 1)), 
@@ -226,14 +279,14 @@ class DSPose:
 
         self.translationVector = translationVector
         self.rotationVector = rotationVector
-        self._covariance = None
+        self.covariance = None
         self.yaw, self.pitch, self.roll = R.from_rotvec(self.rotationVector).as_euler("YXZ")
 
         self._validOrientation = () # yaw, pitch, roll
 
         self.camTranslationVector = camTranslationVector
         self.camRotationVector = camRotationVector
-        self._camCovariance = None # not used at the moment
+        self.camCovariance = None # not used at the moment
         #self.camYaw, self.camPitch, self.camRoll = R.from_rotvec(self.camRotationVector).as_euler("YXZ") # not used
 
         self.associatedLightSources = associatedLightSources
@@ -264,20 +317,6 @@ class DSPose:
         # TODO: this might not be the cleanest way
         # Calculate reprojection error and pixel covariances
         self.init()
-
-    @property
-    def covariance(self):
-        if self._covariance is not None:
-            return self._covariance
-        else:
-            return self.calcCovariance()
-
-    @property
-    def camCovariance(self):
-        if self._camCovariance is not None:
-            return self._camCovariance
-        else:
-            return np.zeros((6, 6))
 
     def init(self):
         self.reprErrors, self.rmse = reprojectionError(self.translationVector, 
@@ -350,7 +389,7 @@ class DSPose:
         # Standard deviation = reprojection rmse/4: https://www.thoughtco.com/range-rule-for-standard-deviation-3126231
         #jacobian - 2*nPoints * 14
         # jacobian - [rotation, translation, focal lengths, principal point, dist coeffs]
-
+        
         # TODO: is RMSE a godd approximation of the standard deviation? (same formula?)
         if pixelCovariance is None:
             # https://www.thoughtco.com/range-rule-for-standard-deviation-3126231
@@ -367,15 +406,16 @@ class DSPose:
             #pixelCovariance = np.array(pixelCovariance)
             
 
-        covariance = calcPoseCovarianceFixedAxis(self.camera, 
+        covariance = calcPoseCovarianceFixedAxis2(self.camera, 
                                                  self.featureModel, 
                                                  self.translationVector, 
                                                  self.rotationVector, 
                                                  pixelCovariance)
 
-        self._covariance = covariance
+        self.covariance = covariance
 
-        return self._covariance
+        logging.debug("Calculated covariance for pose")
+        return self.covariance
 
     def validOrientation(self, yawRange, pitchRange, rollRange):
         if self._validOrientation:
@@ -390,7 +430,7 @@ class DSPose:
         return self._validOrientation
         
 class DSPoseEstimator:
-    #def __init__(self, auv, dockingStation, camera, featureModel):
+
     def __init__(self, 
                  camera, 
                  featureModel,
@@ -448,7 +488,6 @@ class DSPoseEstimator:
         flag = self.flag
         if estTranslationVec is None:
             flag = self.initFlag
-
 
         if flag in ("opencv", "local", "global"):
             success = True
@@ -518,7 +557,7 @@ class DSPoseEstimator:
                       self.camera,
                       self.featureModel)
 
-    def findBestPose(self, associatedLightSourceCombinations, estDSPose=None, firstValid=False, mahaDistThresh=None):
+    def findBestPose(self, associatedLightSourceCombinations, N, estDSPose=None, firstValid=False, mahaDistThresh=None):
         """
         Assume that if firstValid == False, we don't care about 
         mahalanobis distance and just want to find the best pose based on RMSE ratio RMSE/RMSE_MAX
@@ -529,14 +568,14 @@ class DSPoseEstimator:
         if estDSPose:
             estTranslationVec = estDSPose.translationVector
             estRotationVec = estDSPose.rotationVector
-
+            
             if mahaDistThresh:
-                SInv = np.linalg.inv(estDSPose.covariance)
+                _, SInv = cv.invert(estDSPose.covariance, flags=cv.DECOMP_CHOLESKY)
            
         poses = []
         rmseRatios = []
         attempts = 0
-        N = len(associatedLightSourceCombinations)
+
         for associtatedLights in associatedLightSourceCombinations:
             attempts += 1
             dsPose = self.estimatePose(associtatedLights, 
@@ -545,6 +584,7 @@ class DSPoseEstimator:
             dsPose.mahaDistThresh = mahaDistThresh
             if estDSPose and mahaDistThresh:
                 mahaDist = dsPose.calcMahalanobisDist(estDSPose, SInv)
+                dsPose.mahaDist = mahaDist
                 validMahaDist = mahaDist < mahaDistThresh
             else:
                 validMahaDist = True
@@ -555,11 +595,12 @@ class DSPoseEstimator:
             if firstValid:
                 # TODO: Temporary, remove
                 if validReprError and not validMahaDist:
-                    print("Maha dist outlier")
+                    logging.info("Mahalanobis outlier, rejecting pose")
 
                 if valid:
                     dsPose.attempts = attempts
                     dsPose.combinations = N
+                    dsPose.calcCovariance()
                     return dsPose
             else:
                 if valid:

@@ -584,11 +584,65 @@ class ImageAnalyzeNode:
 
         #cv.imshow("thresholded", thresh)
 
-        drawImg2 = drawImg.copy()
-        otsuThreshold, thresh = cv.threshold(gray, 0, 255, cv.THRESH_BINARY+cv.THRESH_OTSU)
-        img = thresh
+        # Laplacian pyramid
+        blobRadius = 3
+        sigma = (blobRadius-1.0)/3.0
+        ksize = blobRadius*2-1#int(round(sigma*3))
+        if ksize % 2 == 0:
+            ksize += 1
+
+        blurred = cv.GaussianBlur(gray, (ksize,ksize), sigma) # ksize
+
+        morphKernel = np.ones((3,3))
+        pyramid = []
+        pyrImg = blurred
+        for i in range(6):
+
+            #dst = cv.Laplacian(blurred, ddepth=cv.CV_16S, ksize=laplaceKernel)
+
+            dst = cv.Laplacian(pyrImg, ddepth=cv.CV_64F, ksize=5)
+            dst = cv.convertScaleAbs(dst, alpha=255./dst.max())
+            dst = dst.astype(np.uint8)
+            
+            #absMax = max(dst.min(), dst.max(), key=abs)
+            #dst /= absMax
+            # dst *= -1
+            # dst += abs(dst.min())
+            # dst = dst * 255./dst.max()
+            # dst = dst.astype(np.uint8)
+
+            # Back to normal size
+            #for _ in range(i):
+            #    dst = cv.pyrUp(dst)
+            
+            #_,dst = cv.threshold(dst,0,255,cv.THRESH_TOZERO+cv.THRESH_OTSU)
+            #_,dst = cv.threshold(dst, 0.9*dst.max(), 255, cv.THRESH_TOZERO)
+            #dst = cv.adaptiveThreshold(dst, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY,11,2)
+
+            pyramid.append(cv.resize(dst, (blurred.shape[1], blurred.shape[0])))
+
+            #pyrImg = cv.morphologyEx(pyrImg, cv.MORPH_ERODE, morphKernel)
+            pyrImg = cv.pyrDown(pyrImg)
+            
+
+        #for i, img in enumerate(pyramid):
+        #    cv.imshow("Pyr {}".format(i), img)
+
+        # Weighted pyramid
+        weightedPyrImg = None
+        for pyrImg in pyramid:
+            if weightedPyrImg is None:
+                weightedPyrImg = pyrImg.astype(np.float32)
+            else:
+                weightedPyrImg += pyrImg.astype(np.float32) + blurred.astype(np.float32)
+                #weightedPyrImg *= pyrImg.astype(np.float32) # multiply?
+                
+        weightedPyrImg *= pyramid[-1].astype(np.float32)
         
-        #cv.imshow("otsu", thresh)
+        weightedPyrImg = weightedPyrImg*255./weightedPyrImg.max()
+        weightedPyrImg = weightedPyrImg.astype(np.uint8)
+        #_,weightedPyrImg = cv.threshold(weightedPyrImg,0,255,cv.THRESH_BINARY+cv.THRESH_OTSU)
+        cv.imshow("Weighted pyramid", weightedPyrImg)
 
         # LoG
         images = []
@@ -612,8 +666,8 @@ class ImageAnalyzeNode:
         
         logImg = images[0]
         otsuThreshold, logThresh = cv.threshold(logImg, 0, 255, cv.THRESH_BINARY+cv.THRESH_OTSU)
-        cv.imshow("LoG", logImg)
-        cv.imshow("LoG+Otsu", logThresh)
+        #cv.imshow("LoG", logImg)
+        #cv.imshow("LoG+Otsu", logThresh)
         return drawImg
         #return drawImg
         #images.append(blurred)
@@ -1309,7 +1363,7 @@ if __name__ == "__main__":
     #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/171121/171121_angle_test.MP4")
     #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/FILE0197.MP4")
     #videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "test_sessions/271121/271121_5planar_1080p.MP4")
-    #imgLabelNode.analyzeVideoImages(datasetPath, labelFile, videoPath, startFrame=350, analyzeImages=False, waitForFeatureExtractor=False) #350
+    imgLabelNode.analyzeVideoImages(datasetPath, labelFile, videoPath, startFrame=350, analyzeImages=False, waitForFeatureExtractor=False) #350
 
     # DoNN dataset
     imgLabelNode = ImageAnalyzeNode("camera_calibration_data/donn_camera.yaml")
@@ -1362,4 +1416,4 @@ if __name__ == "__main__":
 
     rosbagPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), join("rosbags", rosbagFile))
     imgLabelNode = ImageAnalyzeNode(cameraYaml)
-    imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, topic, startFrame=startFrame, analyzeImages=False, waitForFeatureExtractor=False)
+    #imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, topic, startFrame=startFrame, analyzeImages=False, waitForFeatureExtractor=False)

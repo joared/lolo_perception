@@ -4,6 +4,7 @@ import cv2 as cv
 import numpy as np
 import itertools
 from lolo_perception.perception_utils import plotHistogram, regionOfInterest
+import lolo_perception.py_logging as logging
 
 def drawInfo(img, center, text, color=(255, 0, 0), fontScale=1, thickness=2):
     # font
@@ -634,7 +635,7 @@ def findNPeaks2(gray, kernel, pMin, pMax, n, minThresh=0, margin=1, ignorePAtMax
     while True:
         if np.max(peaksDilationMasked) != maxIntensity:
             if len(peakCenters) >= n:
-                print("Found {} peaks, breaking".format(n))
+                logging.debug("Found {} peaks, breaking".format(n))
                 break
             else:
                 maxIntensity = np.max(peaksDilationMasked)
@@ -642,7 +643,7 @@ def findNPeaks2(gray, kernel, pMin, pMax, n, minThresh=0, margin=1, ignorePAtMax
                     break
                 if maxIntensity == 255 and ignorePAtMax:
                     # if it is maximum intensity, ignore p
-                    print("Ignoring p at max")
+                    logging.debug("Ignoring p at max")
                     threshold = 254
                     #threshold = 251 # TODO: maybe another value is more suitable?
                 else:
@@ -660,7 +661,7 @@ def findNPeaks2(gray, kernel, pMin, pMax, n, minThresh=0, margin=1, ignorePAtMax
         cntPeak, cntPeakOffset = findPeakContourAt(threshImg, center, offset=offset)#, mode=cv.RETR_LIST)
 
         if cntPeak is None:
-            print("Something went wrong?!")
+            logging.error("Something went wrong...")
             break
 
         # TODO: Check if contour includes the threshold value.
@@ -713,7 +714,7 @@ def findNPeaks2(gray, kernel, pMin, pMax, n, minThresh=0, margin=1, ignorePAtMax
         peaksDilationMasked = cv.drawContours(peaksDilationMasked, [cntPeak], 0, (0, 0, 0), -1)
 
         if iterations >= maxIter:
-            print("Peak maxiter reached")
+            logging.debug("Peak maxiter reached")
             break
     
     if drawImg is not None:
@@ -1349,12 +1350,9 @@ def featureAssociationSquareImprovedWithFilter(featurePoints, detectedLightSourc
             if d > featurePointDists[refIdxs[refIdx]]:
                 refIdxs[refIdx] = i
 
-    for v in refIdxs:
-        if v is None:
-            print(refIdxs)
-            raise Exception("Association failed")
-
-
+    if None in refIdxs:
+        logging.error("Association failed. Ref idxs: {}".format(refIdxs))
+        raise Exception("Association failed")
 
     # identify top two and bottom two
     sortedByAscendingY = sorted(detectedLightSources, key=lambda ls: ls.center[1])
@@ -1367,17 +1365,20 @@ def featureAssociationSquareImprovedWithFilter(featurePoints, detectedLightSourc
 
     # Filter/remove non-square detection
     # TODO: use distance and angle instead
+    # TODO: This might not work well when there is a lot of perspective distortion
 
     # check if width is similar
     wTop = topRight.center[0]-topLeft.center[0]
     wBottom = bottomRight.center[0]-bottomLeft.center[0]
     if abs(wTop-wBottom) > max(wTop, wBottom)*p:
+        logging.trace("Ignored non-square")
         return None, []
 
     # check if height is similar
     hLeft = bottomLeft.center[1]-topLeft.center[1]
     hRight = bottomRight.center[1]-topRight.center[1]
     if abs(hLeft-hRight) > max(hLeft, hRight)*p:
+        logging.trace("Ignored non-square")
         return None, []
 
     associatedLightSources = [None]*len(featurePoints)
@@ -1410,7 +1411,7 @@ def featureAssociation(featurePoints, detectedLightSources, featurePointsGuess=N
     detectedLightSources = list(detectedLightSources)
     detectedPoints = [ls.center for ls in detectedLightSources]
     if len(detectedPoints) < len(featurePoints):
-        print("Not enough features detected")
+        logging.warn("Not enough detected features given")
         return [], []
 
     if featurePointsGuess is None:

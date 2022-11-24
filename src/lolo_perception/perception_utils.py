@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 from scipy import signal
 
 def plotPoseImageInfo(poseImg,
-                      perceptionRef,
                       titleText,
                       dsPose,
                       camera,
@@ -14,6 +13,7 @@ def plotPoseImageInfo(poseImg,
                       poseAquired,
                       validOrientationRange,
                       poseEstMethod,
+                      piChartArgs,  
                       roiCnt=None,
                       roiCntUpdated=None,
                       progress=0,
@@ -34,9 +34,6 @@ def plotPoseImageInfo(poseImg,
                color=(255,0,255), 
                thickness=2, 
                lineType=cv.LINE_AA)
-    
-    kernelSize = perceptionRef.peakFeatureExtractor.kernelSize
-    cv.circle(poseImg, (int(poseImg.shape[1]/2.5)-50, 45), int(kernelSize/2.0), (255,0,255), 2)
 
     cv.putText(poseImg, 
                poseEstMethod, 
@@ -54,18 +51,15 @@ def plotPoseImageInfo(poseImg,
 
     if dsPose:
         axisColor = None
-        if poseAquired:
-            roiColor = (0, 255, 0)
-        else:
-            roiColor = (255, 255, 255)
+        roiColor = (0, 255, 0)
         if not validOrientation:
             axisColor = (0, 0, 255)
             roiColor = (0, 0, 255)
         if roiCnt is not None:
             cv.drawContours(poseImg, [roiCnt], -1, (100,100,100), 3)
         if roiCntUpdated is not None:
-
-            cv.drawContours(poseImg, [roiCntUpdated], -1, roiColor, 3)
+            
+            drawProgressROI(poseImg, progress, roiCntUpdated, roiColor)
             
             cv.putText(poseImg, 
                        "#{}".format(dsPose.detectionCount), 
@@ -77,17 +71,16 @@ def plotPoseImageInfo(poseImg,
 
             cv.putText(poseImg, 
                        "{}/{}".format(dsPose.attempts, dsPose.combinations), 
-                       (roiCntUpdated[3][0]-10, roiCntUpdated[3][1]+30), 
+                       #(roiCntUpdated[3][0]-10, roiCntUpdated[3][1]+30), 
+                       (roiCntUpdated[1][0]-70, roiCntUpdated[1][1]-10), 
                        cv.FONT_HERSHEY_SIMPLEX, 
                        fontScale=1, 
                        thickness=2, 
                        color=(255,0,255))
 
-
-
             # mahanalobis distance meter
             mahaDistRatio = 1
-            if dsPose.mahaDist:
+            if dsPose.mahaDist is not None and dsPose.mahaDistThresh:
                 mahaDistRatio = dsPose.mahaDist/dsPose.mahaDistThresh
 
             xStart = roiCntUpdated[2][0]+3
@@ -98,7 +91,7 @@ def plotPoseImageInfo(poseImg,
             cv.rectangle(poseImg, 
                          (xStart, yStart), 
                          (xEnd, int(mahaDistRatio*(yEnd - yStart)) + yStart), 
-                         color=(0, 0, 255) if dsPose.mahaDist else (0, 140, 255), 
+                         color=(0, 0, 255) if dsPose.mahaDist is not None else (0, 140, 255), 
                          thickness=-1)
 
         if poseAquired and dsPose: # redundancy
@@ -112,23 +105,21 @@ def plotPoseImageInfo(poseImg,
                     thickness=5,
                     fixedAxis=fixedAxis) 
 
-            # TODO: plot uncertainty based on reprojection error
+            plotPoseInfo(poseImg, 
+                         dsPose.translationVector, 
+                         dsPose.rotationVector,
+                         yawColor=(0,255,0) if validYaw else (0,0,255),
+                         pitchColor=(0,255,0) if validPitch else (0,0,255),
+                         rollColor=(0,255,0) if validRoll else (0,0,255))
 
-    if roiCntUpdated is not None and progress < 1:
-        drawProgressROI(poseImg, progress, roiCntUpdated)
+            # TODO: plot uncertainty based on reprojection error
 
     if dsPose:
         #plotMaxReprojection(poseImg, dsPose)
         plotErrorEllipses(poseImg, 
                           dsPose,
                           displayReferenceSphere=False)
-        plotPoseInfo(poseImg, 
-                    dsPose.translationVector, 
-                    dsPose.rotationVector,
-                    yawColor=(0,255,0) if validYaw else (0,0,255),
-                    pitchColor=(0,255,0) if validPitch else (0,0,255),
-                    rollColor=(0,255,0) if validRoll else (0,0,255))
-
+        
         plotPosePoints(poseImg, 
                     dsPose.translationVector, 
                     dsPose.rotationVector, 
@@ -138,32 +129,44 @@ def plotPoseImageInfo(poseImg,
         plotPoints(poseImg, [ls.center for ls in dsPose.associatedLightSources], (255, 0, 0), radius=1)
 
     plotCrosshair(poseImg, camera)
-    
 
-    # progress bar for light source tracker and aquiring pose
-    xStart = camera.resolution[1]-30
-    yStart = camera.resolution[0]-10
-    xEnd = xStart
-    yEnd = yStart - 200
-    cv.line(poseImg, (xStart, yStart), (xEnd, yEnd), (255,255,255), 15)
-    cv.line(poseImg, (xStart, yStart), (xEnd, int(progress*(yEnd - yStart)) + yStart), (0,255,0), 10)
+    piChartSize = 35
+    plotPiChart(poseImg, (int(poseImg.shape[1]*4/5), 45+piChartSize*2), piChartSize, **piChartArgs)
 
     return poseImg
 
-def drawProgressROI(poseImg, progress, roiCnt, clockwise=True):
+def plotPoseImageInfoSimple(poseImg, dsPose, poseAquired):
+    if dsPose:
+        plotAxis(poseImg, 
+                 dsPose.translationVector, 
+                 dsPose.rotationVector, 
+                 dsPose.camera, 
+                 dsPose.featureModel.features, 
+                 dsPose.featureModel.maxRad,
+                 color=None,
+                 thickness=5,
+                 fixedAxis=False)
+
+    return poseImg
+
+def drawProgressROI(poseImg, progress, roiCnt, roiColor, clockwise=True):
     """
-    [0][0/1] - top left x/y
-    [1][0/1] - top right x/y
-    [2][0/1] - bottom right x/y
-    [3][0/1] - bottom left x/y
+    roiCnt[0][0/1] - top left x/y
+    roiCnt[1][0/1] - top right x/y
+    roiCnt[2][0/1] - bottom right x/y
+    roiCnt[3][0/1] - bottom left x/y
     """
+    if progress == 1:
+        cv.drawContours(poseImg, [roiCnt], -1, roiColor, 3)
+        return
+
+    cv.drawContours(poseImg, [roiCnt], -1, (200,200,200), 7)
+
     w = roiCnt[1][0] - roiCnt[0][0]
     h = roiCnt[3][1] - roiCnt[0][1]
     tot = 2*w + 2*h
     w_norm = w/float(tot)
     h_norm = h/float(tot)
-
-    drawPoints = []
 
     progressTemp = progress
     for i, l in enumerate([w_norm, h_norm, w_norm, h_norm]):
@@ -173,21 +176,23 @@ def drawProgressROI(poseImg, progress, roiCnt, clockwise=True):
         else:
             p2 = roiCnt[i+1][0], roiCnt[i+1][1]
 
-            if progressTemp < l:
-                if i == 0:
-                    p2 = p2[0]-progressTemp*tot, p2[1]
-                elif i == 1:
-                    p2 = p2[0], p2[1]-progressTemp*tot
-                elif i == 2:
-                    p2 = p2[0]+progressTemp*tot, p2[1]
-                else:
-                    p2 = p2[0], p2[1]+progressTemp*tot
+        if progressTemp < l:
+            if i == 0:
+                p2 = p1[0]+progressTemp*tot, p2[1]
+            elif i == 1:
+                p2 = p2[0], p1[1]+progressTemp*tot
+            elif i == 2:
+                p2 = p1[0]-progressTemp*tot, p2[1]
+            else:
+                p2 = p2[0], p1[1]-progressTemp*tot
 
         p2 = int(p2[0]), int(p2[1])
-        cv.line(poseImg, p1, p2, (0,255,0), 3)
+        dimColor = (roiColor[0]*0.6, roiColor[1]*0.6, roiColor[2]*0.6)
+        cv.line(poseImg, p1, p2, dimColor, 3)
         progressTemp -= l
-        tot -= l
+
         if progressTemp < 0:
+            cv.circle(poseImg, p2, 15, roiColor, -1)
             return
 
 def progressToIndex(progress, w_norm, h_norm):
@@ -375,20 +380,49 @@ def plotPoseInfo(img, translationVector, rotationVector, yawColor=(0,255,0), pit
         distance = round(distance, 2)
 
     inc = 25
-    cv.putText(img, "Range: {} {}".format(distance, unit), org, cv.FONT_HERSHEY_SIMPLEX, 1, color=(0, 255, 0), thickness=2, lineType=cv.LINE_AA)
+    cv.putText(img, "Range: {} {}".format(distance, unit), org, cv.FONT_HERSHEY_SIMPLEX, 1, color=(0, 255, 0), thickness=1, lineType=cv.LINE_AA)
     org = (org[0], org[1]+inc)
-    cv.putText(img, "X: {} {}".format(round(translationVector[0], 2), unit), org, cv.FONT_HERSHEY_SIMPLEX, 1, color=(0, 255, 0), thickness=2, lineType=cv.LINE_AA)
+    cv.putText(img, "X: {} {}".format(round(translationVector[0], 2), unit), org, cv.FONT_HERSHEY_SIMPLEX, .8, color=(0, 255, 0), thickness=1, lineType=cv.LINE_AA)
     org = (org[0], org[1]+inc)
-    cv.putText(img, "Y: {} {}".format(round(translationVector[1], 2), unit), org, cv.FONT_HERSHEY_SIMPLEX, 1, color=(0, 255, 0), thickness=2, lineType=cv.LINE_AA)
+    cv.putText(img, "Y: {} {}".format(round(translationVector[1], 2), unit), org, cv.FONT_HERSHEY_SIMPLEX, .8, color=(0, 255, 0), thickness=1, lineType=cv.LINE_AA)
     org = (org[0], org[1]+inc)
-    cv.putText(img, "Z: {} {}".format(round(translationVector[2], 2), unit), org, cv.FONT_HERSHEY_SIMPLEX, 1, color=(0, 255, 0), thickness=2, lineType=cv.LINE_AA)
-    org = (org[0], org[1]+inc)
-    cv.putText(img, "Yaw: {} deg".format(round(yaw, 2)), org, cv.FONT_HERSHEY_SIMPLEX, 1, color=yawColor, thickness=2, lineType=cv.LINE_AA)
-    org = (org[0], org[1]+inc)
-    cv.putText(img, "Pitch: {} deg".format(round(pitch, 2)), org, cv.FONT_HERSHEY_SIMPLEX, 1, color=pitchColor, thickness=2, lineType=cv.LINE_AA)
-    org = (org[0], org[1]+inc)
-    cv.putText(img, "Roll: {} deg".format(round(roll, 2)), org, cv.FONT_HERSHEY_SIMPLEX, 1, color=rollColor, thickness=2, lineType=cv.LINE_AA)
+    cv.putText(img, "Z: {} {}".format(round(translationVector[2], 2), unit), org, cv.FONT_HERSHEY_SIMPLEX, .8, color=(0, 255, 0), thickness=1, lineType=cv.LINE_AA)
+    
+    thickness = 1
+    width = 200
+    org = (org[0], org[1]+inc+5)
+    plotOrientationBar(img, org, "Yaw", (0,255,0), yaw, 90, width=width, height=inc, thickness=thickness)
+    org = (org[0], org[1]+inc+thickness)
+    plotOrientationBar(img, org, "Pitch", (0,0,255), pitch, 90, width=width, height=inc, thickness=thickness)
+    org = (org[0], org[1]+inc+thickness)
+    plotOrientationBar(img, org, "Roll", (255,0,0), roll, 90, width=width, height=inc, thickness=thickness)
 
+
+def plotOrientationBar(img, org, text, color, val, valRange, width, height, thickness=1):
+    text = str(round(val,2))
+    font = cv.FONT_HERSHEY_SIMPLEX
+    fontScale = 0.8
+    textThickness = 1
+    textSize = cv.getTextSize(text, font, fontScale, textThickness)
+    textWidth = textSize[0][0]
+    textHeight = textSize[0][1]
+    cv.rectangle(img, 
+                (org[0],org[1]),
+                (org[0]+width, org[1]-height),
+                color=color, 
+                thickness=thickness)
+    center = (org[0]+int(width/2.0), org[1])
+    barWidth = int(val/float(valRange)*width/2.0)
+    cv.rectangle(img, 
+                (center[0],center[1]),
+                (center[0]+barWidth, center[1]-height),
+                color=color, 
+                thickness=-1)
+
+    textOrg = (org[0]+int((width-textWidth)/2.0), org[1]-int((height-textHeight)/2.0))
+    cv.putText(img, "{:7<s}".format(text), textOrg, font, fontScale, color=(255,255,255), thickness=textThickness, lineType=cv.LINE_AA)
+    #textOrg = (org[0], org[1]-int(height/5.0))
+    #cv.putText(img, "{:7<s} {:4=+.1f} deg".format(text, round(val, 2)), textOrg, cv.FONT_HERSHEY_SIMPLEX, .5, color=(255,255,255), thickness=1, lineType=cv.LINE_AA)
 
 def plotCrosshair(img, camera, color=(0, 0, 255)):
     center, = projectPoints(np.array([0., 0., 1.]), 
@@ -469,13 +503,12 @@ def plotHistogram(img, N, showPeaks=False, showValleys=False, highLightFirstPeak
     plt.ylabel("Frequency")
     plt.xlabel("Intensity")
 
-def regionOfInterest(featurePointsGuess, wMargin, hMargin):
-    #featurePointsGuess = self.camera.metersToUV(featurePointsGuess)
+def regionOfInterest(points, wMargin, hMargin):
     topMost = [None, np.inf]
     rightMost = [-np.inf]
     bottomMost = [None, -np.inf]
     leftMost = [np.inf]
-    for p in featurePointsGuess:
+    for p in points:
         if p[1] < topMost[1]:
             topMost = p
 
@@ -512,6 +545,49 @@ def imageROI(img, imgPoints, margin):
     imgROI = img[y:y+h, x:x+w]
 
     return imgROI, roiCnt, (x, y, w, h)
+
+def plotPiChart(img, center, size=20, **kwargs):
+
+    colors = ((255, 0, 0),
+              (0, 255, 0),
+              (0, 0, 255),
+              (255, 255, 0),
+              (255, 0, 255),
+              (0, 255, 255))
+
+    assert len(colors) >= len(kwargs), "Cannot create pi chart with more values than {} < {}".format(len(colors), len(kwargs))
+
+    tot = sum(kwargs.values())
+
+    cv.rectangle(img, 
+                (center[0], center[1]+size), 
+                (center[0]+size*6, center[1]-size), 
+                color=(200, 200, 200), 
+                thickness=-1)
+    cv.circle(img, center, int(size*1.1), (200,200,200), -1)
+    startAngle = -90
+    for i, (k, c) in enumerate(zip(kwargs, colors)):
+        val = kwargs[k]
+        angle = val/float(tot) * 360
+        cv.ellipse(img, center, (size, size), 0, startAngle, startAngle+angle, c, -1)
+        margin = 10
+        cv.putText(img, 
+                   k, 
+                   (center[0] + size + margin, center[1] - int(size - size/(len(kwargs)-1) - 2*size*i/len(kwargs))), 
+                   cv.FONT_HERSHEY_SIMPLEX, 
+                   .7, 
+                   color=c, 
+                   thickness=1, 
+                   lineType=cv.LINE_AA)
+
+        startAngle += angle
+
+def scaleImage(img, scalePercent):
+    """
+    Scales the image (up or down) base on scalePercentage.
+    Preserves aspect ratio.
+    """
+    return cv.resize(img, (int(img.shape[1]*scalePercent) , int(img.shape[0]*scalePercent)))
 
 class PoseAndImageUncertaintyEstimator:
     """
@@ -610,3 +686,72 @@ class ImagePointsAverageAndCovarianceEstimator:
             imageAvgs.append(np.mean(points, axis=0))
 
         return imageAvgs
+
+if __name__ == "__main__":
+    from pose_estimation import DSPose
+    from feature_model import FeatureModel
+    from camera_model import Camera
+    from image_processing import LightSource
+
+    featureModel = FeatureModel.fromYaml("/home/joar/LoLo/lolo_ws/src/lolo_perception/feature_models/big_prototype_5.yaml")
+    camera = Camera.fromYaml("/home/joar/LoLo/lolo_ws/src/lolo_perception/camera_calibration_data/usb_camera_720p_8.yaml")
+    
+    translationVector = np.array([-.52, .55, 4.5])
+    rotationVector = np.array([0., -.2, -.2]) 
+    camTranslationVector = np.array([0., 0., 0.])
+    camRotationVector = np.array([0., 0., 0]) 
+
+    pPoints = projectPoints(translationVector, rotationVector, camera, featureModel.features)
+    cnts = [np.array([[(int(p[0]), int(p[1]))]]) for p in pPoints]
+    associatedLightSources = [LightSource(cnt, 255) for cnt in cnts]
+    
+    _, roiCnt = regionOfInterest(pPoints, 80, 80)
+    roiCntUpdated = roiCnt
+
+    dsPose = DSPose(translationVector, 
+                    rotationVector, 
+                    camTranslationVector,
+                    camRotationVector, 
+                    associatedLightSources, 
+                    camera, 
+                    featureModel)
+
+    img = cv.imread("/home/joar/LoLo/thesis_images/general/original_image.png")
+
+    progress = 0
+    yaw = 0
+    pitch = 0
+    roll = 0
+    while True:
+        imgTemp = img.copy()
+        progress += 0.1
+        if progress > 1: 
+            progress = 0
+
+        yaw += np.random.randint(-4, 5)
+        pitch += np.random.randint(-4, 5)
+        roll += np.random.randint(-4, 5)
+        yaw = min(90, max(-90, yaw))
+        pitch = min(90, max(-90, pitch))
+        roll = min(90, max(-90, roll))
+
+        dsPose.rotationVector = R.from_euler("YXZ", (yaw,pitch,roll), degrees=True).as_rotvec()
+        print(dsPose.rotationVector)
+
+        imgTemp = plotPoseImageInfo(imgTemp,
+                                    "Testing",
+                                    dsPose,
+                                    camera,
+                                    featureModel,
+                                    False,                 # poseAquired
+                                    (90, 90, 90),
+                                    "LM",
+                                    roiCnt=roiCnt,
+                                    roiCntUpdated=roiCntUpdated,
+                                    progress=progress,
+                                    fixedAxis=False)
+
+        cv.imshow("Image", imgTemp)
+        key = cv.waitKey(1000)
+        if key == ord("q"):
+            break

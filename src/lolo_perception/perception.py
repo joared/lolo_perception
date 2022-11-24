@@ -1,14 +1,42 @@
 import cv2 as cv
+import time
 import yaml
 import numpy as np
 import itertools
+import py_logging as logging
+import math
 from scipy.spatial.transform import Rotation as R
 
 from lolo_perception.image_processing import featureAssociation, featureAssociationSquare, featureAssociationSquareImproved, featureAssociationSquareImprovedWithFilter
 from lolo_perception.pose_estimation import DSPoseEstimator
 from lolo_perception.light_source_deteector import LocalPeak, ModifiedHATS
-from lolo_perception.perception_utils import plotPoseImageInfo, regionOfInterest
+from lolo_perception.perception_utils import plotPoseImageInfoSimple, plotPoseImageInfo, regionOfInterest
 
+
+class Timer:
+    def __init__(self, name):
+        self.name = name
+        self._startTime = None
+        self._endTime = None
+
+    def reset(self):
+        self._startTime = None
+        self._endTime = None
+
+    def start(self):
+        self._startTime = time.time()
+
+    def stop(self):
+        if self._startTime:
+            self._endTime = time.time()
+        else:
+            self.reset()
+
+    def elapsed(self):
+        if self._startTime and self._endTime:
+            return self._endTime - self._startTime
+        else:
+            return 0
 
 class AssociateCombinationGenerator:
     def __init__(self, lsCombs, associateFunc):
@@ -25,47 +53,47 @@ class AssociateCombinationGenerator:
         return len(self._comb)
 
 class Perception:
-    def __init__(self, camera, featureModel, hatsMode=ModifiedHATS.MODE_VALLEY):
+    def __init__(self, camera, featureModel):
         self.camera = camera
         self.featureModel = featureModel
-
+        
         # Choose association method
         def assFunc(comb):
             #return featureAssociation(self.featureModel.features, comb)
             #return featureAssociationSquare(self.featureModel.features, comb, self.camera.resolution)
             #return featureAssociationSquareImproved(self.featureModel.features, comb)
-            return featureAssociationSquareImprovedWithFilter(self.featureModel.features, comb, p=0.07)
+            return featureAssociationSquareImprovedWithFilter(self.featureModel.features, comb, p=0.07) # p = 0.07, 0.33
 
         self.associationFunc = assFunc
         
         if self.camera.resolution[1] > 1280:
-            print("Using large kernels")
-            minArea = 80 #40
+            logging.info("Using large kernels")
+            minArea = 40 # 80
             blurKernelSize = 11 # 11
             localMaxKernelSize = 21 # 11
         elif self.camera.resolution[1] == 1280:
-            print("Using small kernels")
-            minArea = 80 #20
+            logging.info("Using small kernels")
+            minArea = 20 #20
             blurKernelSize = 11 #9# 9/11
             localMaxKernelSize = 11 # 11
         else:
-            print("Using tiny kernels")
-            minArea = 80
+            logging.info("Using tiny kernels")
+            minArea = 20 # 80
             blurKernelSize = 5 #5
             localMaxKernelSize = 11 # 11
 
-        minCircleExtent = 0.55 # 0.55 for underwater, 0 when above ground (set low during heavy motion blur)
+        minCircleExtent = 0.2           # 0.55 for underwater, 0 when above ground (set low during heavy motion blur)
         self.maxIntensityChange = 0.7
-        self.toHATSScale = 3 #3 # change to HATS when min area > minArea*areaScale
-        self.toPeakScale = 1.5 # change back to peak when min area < minArea*areaScale
-        ignoreMax = True
+        self.toHATSScale = 3 #3         # change to HATS when min area > minArea*areaScale
+        self.toPeakScale = 1.5          # change back to peak when min area < minArea*areaScale
+        ignoreMax = False
         self.hatsFeatureExtractor = ModifiedHATS(len(self.featureModel.features), 
-                                                 peakMargin=0, # this should be zero if using MODE_VALLEY or MODE_PEAK
+                                                 peakMargin=0,                              # this should be zero if using MODE_VALLEY or MODE_PEAK
                                                  minArea=minArea, 
-                                                 minRatio=minCircleExtent, # might not be good for outlier detection, convex hull instead?
+                                                 minRatio=minCircleExtent,                  # might not be good for outlier detection, convex hull instead?
                                                  maxIntensityChange=self.maxIntensityChange,
                                                  blurKernelSize=blurKernelSize,
-                                                 mode=hatsMode,
+                                                 mode=ModifiedHATS.MODE_VALLEY,
                                                  ignorePeakAtMax=ignoreMax,
                                                  showHistogram=False)
 
@@ -74,6 +102,7 @@ class Perception:
         pMin = .975 # .8
         pMax = .975 #.975
         maxIter = 100
+        filterAfter = True
         self.peakFeatureExtractor = LocalPeak(len(self.featureModel.features), 
                                               kernelSize=localMaxKernelSize, # 11 for 720p, 25 for 1080p
                                               pMin=pMin, #0.93 set pMin = pMax for fixed p
@@ -81,9 +110,10 @@ class Perception:
                                               maxIntensityChange=self.maxIntensityChange,
                                               minArea=minArea,
                                               minCircleExtent=minCircleExtent,
-                                              blurKernelSize=blurKernelSize,  # 5 for 720p, 11 for 1080p
+                                              blurKernelSize=blurKernelSize,
                                               ignorePAtMax=ignoreMax,
-                                              maxIter=maxIter)
+                                              maxIter=maxIter,
+                                              filterAfter=filterAfter)
         
         # start with peak
         self.featureExtractor = self.peakFeatureExtractor
@@ -122,14 +152,17 @@ class Perception:
         self.estCameraPoseVector = None # [x, y, z, ax, ay, az]
 
         self.detectionCountThresh = 10
+        self.detectionDeCount = 5
 
         # Access images from perception_node
         self.processedImg = None
         self.poseImg = None
 
+        self.hzs = []
+
     def updateDSPoseFromNewCameraPose(self, estDSPose, estCameraPoseVector):
         if self.estCameraPoseVector is not None and estCameraPoseVector is not None:
-            print("Updating estDSPose")
+            logging.debug("Updating estDSPose")
             c1ToGTransl = self.estCameraPoseVector[:3]
             c1ToGRot = R.from_rotvec(self.estCameraPoseVector[3:])
             c2ToGTransl = estCameraPoseVector[:3]
@@ -152,8 +185,12 @@ class Perception:
         # increase covariance
         #rotK = 5e-5
         rotK = 5e-4
-        covNew = estDSPose.covariance + np.eye(6)*rotK
-        estDSPose._covariance = covNew
+        
+        if estDSPose.covariance is not None:
+            covNew = estDSPose.covariance + np.eye(6)*rotK
+            estDSPose.covariance = covNew
+        else:
+            logging.error("Estimated pose has no covariance, could not increase it")
 
         return estDSPose
 
@@ -165,6 +202,11 @@ class Perception:
                      calcCovariance=False):
 
         #estCameraPoseVector = None ###
+        
+        imgProcTimer = Timer("Image Proc")
+        poseEstTimer = Timer("Pose Est")
+        totTimer = Timer("Total")
+        totTimer.start()
 
         # information about contours extracted from the feature extractor is plotted in this image
         processedImg = imgColor.copy()
@@ -186,10 +228,9 @@ class Perception:
 
         # TODO: move this to perception_node?
         if estDSPose:
-            featurePointsGuess = estDSPose.reProject()
             roiMargin = self.roiMargin
             roiMargin += max([ls.radius for ls in estDSPose.associatedLightSources])
-            _, roiCnt = regionOfInterest(featurePointsGuess, wMargin=roiMargin, hMargin=roiMargin)
+            _, roiCnt = regionOfInterest(estDSPose.reProject(), wMargin=roiMargin, hMargin=roiMargin)
 
             estDSPose = self.updateDSPoseFromNewCameraPose(estDSPose, estCameraPoseVector)
         self.estCameraPoseVector = estCameraPoseVector
@@ -213,6 +254,7 @@ class Perception:
         else:
             self.featureExtractor = self.peakFeatureExtractor
 
+        imgProcTimer.start()
         # extract light source candidates from image
         _, candidates, roiCntUpdated = self.featureExtractor(gray, 
                                                             maxAdditionalCandidates=self.maxAdditionalCandidates, 
@@ -220,24 +262,28 @@ class Perception:
                                                             roiMargin=self.roiMargin, 
                                                             drawImg=processedImg)
 
+        imgProcTimer.stop()
         # should be part of image processing module
         if len(candidates) >= len(self.featureModel.features):
 
             # N_C! / (N_F! * (N_C-N_F)!)
-            lightCandidateCombinations = list(itertools.combinations(candidates, len(self.featureModel.features)))
-                
-            # TODO: does this take a lot of time?
-            # sort combinations
-            if self.featureExtractor == self.hatsFeatureExtractor:
-                # sort by summed circle extent
-                lightCandidateCombinations.sort(key=lambda comb: sum([ls.circleExtent() for ls in comb]), reverse=True)
-            elif self.featureExtractor == self.peakFeatureExtractor:
-                # sort by summed intensity
-                # TODO: not sure how much this improves
-                #lightCandidateCombinations.sort(key=lambda comb: (sum([ls.intensity for ls in comb]), sum([ls.area for ls in comb])), reverse=True)
-                lightCandidateCombinations.sort(key=lambda comb: (sum([ls.intensity for ls in comb]), sum([ls.circleExtent() for ls in comb])), reverse=True)
-            else:
-                raise Exception("Not ANYMORE!")
+            lightCandidateCombinations = itertools.combinations(candidates, len(self.featureModel.features))
+
+            sortCombinations = False # If True, a slight impact on FPS (44 -> 41)
+            if  sortCombinations:
+                # TODO: does this take a lot of time?
+                lightCandidateCombinations = list(lightCandidateCombinations)
+                # sort combinations
+                if self.featureExtractor == self.hatsFeatureExtractor:
+                    # sort by summed circle extent
+                    lightCandidateCombinations.sort(key=lambda comb: sum([ls.circleExtent() for ls in comb]), reverse=True)
+                elif self.featureExtractor == self.peakFeatureExtractor:
+                    # sort by summed intensity
+                    # TODO: not sure how much this improves
+                    #lightCandidateCombinations.sort(key=lambda comb: (sum([ls.intensity for ls in comb]), sum([ls.area for ls in comb])), reverse=True)
+                    lightCandidateCombinations.sort(key=lambda comb: (sum([ls.intensity for ls in comb]), sum([ls.circleExtent() for ls in comb])), reverse=True)
+                else:
+                    raise Exception("Not ANYMORE!")
 
             associatedCombinations = AssociateCombinationGenerator(lightCandidateCombinations, 
                                                                    self.associationFunc)
@@ -246,21 +292,35 @@ class Perception:
             # the featureModel specifies the placementUncertainty and detectionTolerance
             # which determines the maximum allowed reprojection RMSE
             # The first valid pose is good enough in most cases 
+            poseEstTimer.start()
+            NC = len(candidates)
+            NF = len(self.featureModel.features)
+            N = math.factorial(NC) / (math.factorial(NF) * math.factorial(NC-NF))
             dsPose = self.poseEstimator.findBestPose(associatedCombinations, 
+                                                     N=N,
                                                      estDSPose=estDSPose, 
                                                      firstValid=True,
                                                      mahaDistThresh=self.mahalanobisDistThresh)
+            poseEstTimer.stop()
 
-            if dsPose:
+            if dsPose and estDSPose:
                 # TODO: Do this is pose_estimation.py?
-                if estDSPose:
-                    dsPose.detectionCount += estDSPose.detectionCount
-                    if dsPose.detectionCount >= self.detectionCountThresh:
-                        poseAquired = True
-                if calcCovariance:
-                    dsPose.calcCovariance()
-            else:
-                print("Pose estimation failed")
+                dsPose.detectionCount += estDSPose.detectionCount
+                if dsPose.detectionCount >= self.detectionCountThresh:
+                    poseAquired = True
+            elif dsPose and not estDSPose:
+                logging.info("New pose found")
+            elif not dsPose and estDSPose:
+                logging.info("No valid pose found")
+        else:
+            logging.info("Did not find enough light source candidates {} < {}".format(len(candidates), len(self.featureModel.features)))
+
+        # TODO: Temp remove
+        if not dsPose and estDSPose:
+            if estDSPose.detectionCount > 1:
+                dsPose = estDSPose
+                dsPose.detectionCount = min(self.detectionDeCount, dsPose.detectionCount)
+                dsPose.detectionCount -= 1
 
         progress = 0
         if dsPose:
@@ -277,10 +337,15 @@ class Perception:
                 poseEstMethod += "+L-M"
         else:
             poseEstMethod = poseEstFlag
-            
+
+        totTimer.stop()
+        totRestElapsed = totTimer.elapsed() - imgProcTimer.elapsed() - poseEstTimer.elapsed()
+
+        piChartArgs = {"Image Proc": imgProcTimer.elapsed(),
+                       "Pose Est": poseEstTimer.elapsed(),
+                       "Rest": totRestElapsed}
         # plots pose axis, ROI, light sources etc. 
         poseImg = plotPoseImageInfo(poseImg,
-                                    self,
                                     "{}".format("HATS" if self.featureExtractor == self.hatsFeatureExtractor else "Peak"),
                                     dsPose,
                                     self.camera,
@@ -288,6 +353,7 @@ class Perception:
                                     poseAquired,
                                     self.validOrientationRange,
                                     poseEstMethod,
+                                    piChartArgs,
                                     roiCnt,
                                     roiCntUpdated,
                                     progress=progress,

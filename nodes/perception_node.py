@@ -8,24 +8,38 @@ from sensor_msgs.msg import Image, CameraInfo
 from geometry_msgs.msg import PoseWithCovarianceStamped, PoseArray
 from std_msgs.msg import Float32
 import time
+from datetime import datetime
 import numpy as np
+import lolo_perception.py_logging as logging
 
 from lolo_perception.perception_ros_utils import vectorToPose, vectorToTransform, poseToVector, lightSourcesToMsg, featurePointsToMsg
 from lolo_perception.perception import Perception
+from lolo_perception.perception_utils import scaleImage
+from lolo_perception.reprojection_utils import plot2DView
 
 class PerceptionNode:
-    def __init__(self, featureModel, hz, cvShow=False, hatsMode="valley"):
+    def __init__(self, featureModel, hz, cvShow=False):
         self.cameraTopic = "lolo_camera"
         self.cameraInfoSub = rospy.Subscriber("lolo_camera/camera_info", CameraInfo, self._getCameraCallback)
         self.camera = None
+
+        logging.basicConfig(filename=os.path.join(rospkg.RosPack().get_path("lolo_perception"), "logging/{}.log".format(datetime.today())), 
+                            level=logging.TRACE,
+                            format="[{levelname:^8s}]:[{timestamp}]:[{file:^20s}]:[{funcname: ^15s}]:[{lineno:^4}]: {message}",
+                            printLevel=logging.INFO,
+                            printFormat="[{levelname:^8s}]:[{timestamp}]: {message}",
+                            )
+
+        logging.info("------ Perception node started ------")
+
         while not rospy.is_shutdown() and self.camera is None:
-            print("Waiting for camera info to be published")
+            logging.info("Waiting for camera info to be published")
             rospy.sleep(1)
 
         self.hz = hz
         self.cvShow = cvShow
 
-        self.perception = Perception(self.camera, featureModel, hatsMode=hatsMode)
+        self.perception = Perception(self.camera, featureModel)
 
         self.imageMsg = None
         self.bridge = CvBridge()
@@ -112,17 +126,13 @@ class PerceptionNode:
                                                  estDSPose, 
                                                  estCameraPoseVector=cameraPoseVector)
 
-        if dsPose and dsPose.covariance is None:
-            dsPose.calcCovariance()
-
         elapsed = time.time() - start
         virtualHZ = 1./elapsed
         hz = min(self.hz, virtualHZ)
 
-        #if dsPose:
         self.hzs.append(virtualHZ)
     
-        print("Average FPS:", sum(self.hzs)/float(len(self.hzs)))
+        logging.debug("Average FPS: {}".format(sum(self.hzs)/float(len(self.hzs))))
 
         cv.putText(poseImg, 
                    "FPS {}".format(round(hz, 1)), 
@@ -166,17 +176,17 @@ class PerceptionNode:
                 timeStamp=timeStamp)
                 )
             # publish mahalanobis distance
-            if not dsPose.mahaDist and estDSPose:
-                dsPose.calcMahalanobisDist(estDSPose)
+            if dsPose.mahaDist is not None:
                 self.mahalanobisDistPub.publish(Float32(dsPose.mahaDist))
 
             if publishCamPose:
-                print("!!!Publishing cam pose with no covariance!!!")
+                if dsPose.camCovariance is None:
+                    logging.debug("!!!Publishing cam pose with no covariance!!!")
                 self.camPosePublisher.publish(
                     vectorToPose("docking_station_link", 
                     dsPose.camTranslationVector, 
                     dsPose.camRotationVector, 
-                    np.eye(6)*0.00001, 
+                    dsPose.camCovariance if dsPose.camCovariance else np.eye(6)*0.00001, 
                     #dsPose.calcCamPoseCovariance(),
                     timeStamp=timeStamp)
                     )
@@ -210,7 +220,7 @@ class PerceptionNode:
                 try:
                     imgColor = self.bridge.imgmsg_to_cv2(self.imageMsg, 'bgr8')
                 except CvBridgeError as e:
-                    print(e)
+                    logging.error(e)
                 else:
                     if not poseFeedback:
                         estDSPose = None
@@ -226,20 +236,19 @@ class PerceptionNode:
 
             if self.cvShow:
                 show = False
+                imageWidth = 500. # Desired displayed image width
                 if self.perception.poseImg is not None:
                     show = True
 
                     img = self.perception.poseImg
-                    #if img.shape[0] > 720:
-                    img = cv.resize(img, (640,360))
+                    img = scaleImage(img, imageWidth/img.shape[0])
                     cv.imshow("pose image", img)
 
                 if self.perception.processedImg is not None:
                     show = True
                     
                     img = self.perception.processedImg
-                    if img.shape[0] > 720:
-                        img = cv.resize(img, (1280,720))
+                    img = scaleImage(img, imageWidth/img.shape[0])
                     cv.imshow("processed image", img)
 
                 if show:
@@ -252,24 +261,21 @@ if __name__ == '__main__':
     from lolo_perception.feature_model import FeatureModel
     import os
     import rospkg
-    import argparse
-    rospy.init_node('perception_node')
-
-    #parser = argparse.ArgumentParser(description='Perception node')
-    #parser.add_argument('-feature_model_yaml', type=str, default="big_prototype_5.yaml",
-    #                    help='')
     
-    #args = parser.parse_args()
+    rospy.init_node('perception_node')
 
     featureModelYaml = rospy.get_param("~feature_model_yaml")
     hz = rospy.get_param("~hz")
     cvShow = rospy.get_param("~cv_show")
     publishCamPose = rospy.get_param("~publish_cam_pose")
-    hatsMode = rospy.get_param("~hats_mode")
     poseFeedBack = rospy.get_param("~pose_feedback")
-    #featureModelYaml = args.feature_model_yaml
+
     featureModelYamlPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "feature_models/{}".format(featureModelYaml))
     featureModel = FeatureModel.fromYaml(featureModelYamlPath)
 
-    perception = PerceptionNode(featureModel, hz, cvShow=cvShow, hatsMode=hatsMode)
-    perception.run(poseFeedback=poseFeedBack, publishPose=True, publishCamPose=publishCamPose, publishImages=True)
+    perception = PerceptionNode(featureModel, hz, cvShow=cvShow)
+    
+    try: 
+        perception.run(poseFeedback=poseFeedBack, publishPose=True, publishCamPose=publishCamPose, publishImages=True)
+    except rospy.ROSInterruptException:
+        pass

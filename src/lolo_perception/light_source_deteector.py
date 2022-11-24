@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import cv2 as cv
 import numpy as np
+import lolo_perception.py_logging as logging
 
 from matplotlib import pyplot as plt
 from scipy import signal
@@ -24,9 +25,7 @@ class ModifiedHATS:
                  mode="valley", 
                  ignorePeakAtMax=False, 
                  showHistogram=False):
-        """
-        try cv.THRESH_OTSU?
-        """
+
         self.nFeatures = nFeatures
         self.threshold = 256
         self.peakMargin = peakMargin # 0-1
@@ -58,7 +57,6 @@ class ModifiedHATS:
         candidates = []
         removedCandidates = []
         for cnt in contours:
-            #if cv.contourArea(cnt)+1 > self.minArea and contourRatio(cnt) > self.minRatio:
             if cv.contourArea(cnt) > self.minArea and contourRatio(cnt) > self.minRatio:
                 candidates.append(cnt)
             else:
@@ -93,7 +91,6 @@ class ModifiedHATS:
             minIntensity = min([ls.intensity for ls in estDSPose.associatedLightSources])
             minIntensity = self.maxIntensityChange*minIntensity
 
-            # local max that are below 70% of the mean intensity of the previous light sources are discarded
             _, gray = cv.threshold(gray, minIntensity, 256, cv.THRESH_TOZERO)
 
         upper = 255
@@ -164,8 +161,7 @@ class ModifiedHATS:
             _, contours, hier = cv.findContours(imgTemp, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
             candidates, removedCandidates = self._calcCandidates(contours)
 
-        print("HATS iterations: {}".format(i))
-        print("Threshold: {}".format(self.threshold))
+        logging.debug("HATS iterations: {}, Threshold: {}".format(i, self.threshold))
         self.iterations = i
         self.img = imgTemp
 
@@ -204,7 +200,7 @@ class ModifiedHATS:
 
 
 class LocalPeak:
-    def __init__(self, nFeatures, kernelSize, pMin, pMax, maxIntensityChange, minArea, minCircleExtent, blurKernelSize, ignorePAtMax, maxIter):
+    def __init__(self, nFeatures, kernelSize, pMin, pMax, maxIntensityChange, minArea, minCircleExtent, blurKernelSize, ignorePAtMax, maxIter, filterAfter):
         """
         try cv.THRESH_OTSU?
         """
@@ -218,7 +214,7 @@ class LocalPeak:
 
         self.minArea = minArea
         self.minCircleExtent = minCircleExtent
-        self.filterAfter = True # TODO: change to false
+        self.filterAfter = filterAfter # TODO: change to false
 
         self.blurKernelSize = blurKernelSize
         self.sigma = 0.3*((self.blurKernelSize-1)*0.5 - 1) + 0.8
@@ -362,7 +358,7 @@ class LocalPeak:
         
         self.img = peakDilationImg
         self.iterations = iterations
-        print("Local max iterations:", self.iterations)
+        logging.debug("Local max iterations: {}".format(self.iterations))
         return drawImg, candidates, roiCnt
 
 

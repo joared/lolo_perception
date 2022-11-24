@@ -10,7 +10,6 @@
 
   <!--Some parameters for the perception node-->
   <arg name="feature_model_yaml" default="big_prototype_5.yaml" />
-  <arg name="hats_mode" default="valley" /> <!--peak, valley or simple-->
 
   <include file="$(find lolo_perception)/launch/usb_cam.launch" if="$(eval arg('video_device') != false)">
     <arg name="video_device" value="$(arg video_device)"/>
@@ -21,7 +20,6 @@
     <param name="hz" value="$(arg hz)"/>
     <param name="cv_show" value="$(arg cv_show)"/>
     <param name="publish_cam_pose" value="$(eval arg('perspective') == 'dockingstation')"/>
-    <param name="hats_mode" value="$(arg hats_mode)"/>
     <param name="pose_feedback" value="$(arg pose_feedback)"/>
 
     <remap from="/lolo_camera/image_rect_color" to="/lolo/sim/camera_aft/image_color" if="$(eval arg('sim') == true)"/>
@@ -37,6 +35,6 @@
   <node pkg="tf" type="static_transform_publisher" name="lolo_camera_link" args="0 0 1 -1.571 0 -1.571 map lolo_camera_link 100" if="$(eval arg('perspective') == 'camera')"/>
   <!--node pkg="tf" type="static_transform_publisher" name="lolo_camera_link" args="-2.5 0.0 0.33 1.571 0 -1.571 lolo/base_link lolo_camera_link 100" if="$(eval arg('solo') == true)"/-->
 
-  <node type="rviz" name="rviz" pkg="rviz" args="-d $(find lolo_perception)/rviz/lolo_cam.rviz" if="$(arg rviz)"/>
+  <node type="rviz" name="rviz" pkg="rviz" args="-d $(find lolo_perception)/rviz/lolo.rviz" if="$(arg rviz)"/>
 
 </launch>
