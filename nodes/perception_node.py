@@ -25,9 +25,9 @@ class PerceptionNode:
 
         logging.basicConfig(filename=os.path.join(rospkg.RosPack().get_path("lolo_perception"), "logging/{}.log".format(datetime.today())), 
                             level=logging.TRACE,
-                            format="[{levelname:^8s}]:[{timestamp}]:[{file:^20s}]:[{funcname: ^15s}]:[{lineno:^4}]: {message}",
+                            format="[{levelname:^8s}]:[{timestamp}]:[{messageindex:0>4}]:[{file:^20s}]:[{funcname: ^15s}]:[{lineno:^4}]: {message}",
                             printLevel=logging.INFO,
-                            printFormat="[{levelname:^8s}]:[{timestamp}]: {message}",
+                            printFormat="[{levelname:^8s}]:[{messageindex:0>4}]: {message}",
                             )
 
         logging.info("------ Perception node started ------")
@@ -193,7 +193,7 @@ class PerceptionNode:
 
         if publishImages:
             self.imgProcDrawPublisher.publish(self.bridge.cv2_to_imgmsg(processedImg))
-            self.imgProcPublisher.publish(self.bridge.cv2_to_imgmsg(self.perception.featureExtractor.img))
+            self.imgProcPublisher.publish(self.bridge.cv2_to_imgmsg(self.perception.lightSourceDetector.img))
             #if dsPose:
             self.imgPosePublisher.publish(self.bridge.cv2_to_imgmsg(poseImg))
 

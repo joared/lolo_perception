@@ -633,26 +633,24 @@ def findNPeaks2(gray, kernel, pMin, pMax, n, minThresh=0, margin=1, ignorePAtMax
 
     iterations = 0
     while True:
+        if len(peakCenters) >= n:
+            logging.debug("Found {} peaks, breaking".format(n))
+            break
         if np.max(peaksDilationMasked) != maxIntensity:
-            if len(peakCenters) >= n:
-                logging.debug("Found {} peaks, breaking".format(n))
+            maxIntensity = np.max(peaksDilationMasked)
+            if maxIntensity == 0:
                 break
+            if maxIntensity == 255 and ignorePAtMax:
+                # if it is maximum intensity, ignore p
+                logging.debug("Ignoring p at max")
+                threshold = 254 # TODO: maybe another value is more suitable?
             else:
-                maxIntensity = np.max(peaksDilationMasked)
-                if maxIntensity == 0:
-                    break
-                if maxIntensity == 255 and ignorePAtMax:
-                    # if it is maximum intensity, ignore p
-                    logging.debug("Ignoring p at max")
-                    threshold = 254
-                    #threshold = 251 # TODO: maybe another value is more suitable?
-                else:
-                    #pTemp = maxIntensity/255.*(pMax-pMin) + pMin
-                    #pTemp = pDecay(.1801, pMin, pMax, I=maxIntensity) # with pMax = .98
-                    pTemp = pDecay(.175, pMin, pMax, I=maxIntensity)
-                    threshold = int(pTemp*maxIntensity - 1)
+                #pTemp = maxIntensity/255.*(pMax-pMin) + pMin
+                #pTemp = pDecay(.1801, pMin, pMax, I=maxIntensity) # with pMax = .98
+                pTemp = pDecay(.175, pMin, pMax, I=maxIntensity)
+                threshold = int(pTemp*maxIntensity - 1)
 
-                ret, threshImg = cv.threshold(grayMasked, threshold, 256, cv.THRESH_BINARY)
+            ret, threshImg = cv.threshold(grayMasked, threshold, 256, cv.THRESH_BINARY)
 
         iterations += 1
         # TODO: this could probably be more efficient, extracting all contours at this intensity level at the same time
@@ -704,12 +702,6 @@ def findNPeaks2(gray, kernel, pMin, pMax, n, minThresh=0, margin=1, ignorePAtMax
                 peakContours.append(cntPeakOffset)
                 if drawImg is not None:
                     cv.drawContours(drawImg, [cntPeakOffset], 0, (255, 0, 0), -1)
-
-        # Always used this but I think it makes it worse:
-        # 1. Weird shapes around already found peaks
-        # 2. The weird shapes are not peaks, and return false positives affects the speed of 
-        #    iterating through all combinations of light sources
-        #grayMasked = cv.drawContours(grayMasked, [cntPeak], 0, (0, 0, 0), -1)
 
         peaksDilationMasked = cv.drawContours(peaksDilationMasked, [cntPeak], 0, (0, 0, 0), -1)
 

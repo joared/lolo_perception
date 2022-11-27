@@ -53,7 +53,7 @@ class Logger:
                  level=NOTSET, 
                  printLevel=None, 
                  format="[{levelname:^8s}]:[{timestamp}]:[{file:^20s}]:[{funcname: ^15s}]:[{lineno:^4}]: {message}", 
-                 printFormat="[{levelname:^8s}]:[{timestamp}]: {message}",
+                 printFormat="[{levelname:^8s}]:[{messageindex:0>4}]: {message}",
                  filename=None, 
                  silent=False):
         self.name = name
@@ -63,6 +63,9 @@ class Logger:
         self.printFormat = printFormat
         self.filename = filename
         self.silent = silent
+
+        # Keep track of the number of logged messages
+        self._msgIndex = 0
 
     def critical(self, msg, *args, **kwargs):
         self._log(CRITICAL, msg, *args, **kwargs)
@@ -112,6 +115,7 @@ class Logger:
                 if self.filename:
                     s = self.msgFormat.format(levelname=_levelToName[level], 
                                       timestamp=datetime.datetime.today(),
+                                      messageindex=self._msgIndex,
                                       file=filename, 
                                       lineno=lineno, 
                                       funcname=funcName, 
@@ -122,11 +126,15 @@ class Logger:
             if not self.silent and level >= self.printLevel:
                 s = self.printFormat.format(levelname=_levelToName[level], 
                                             timestamp=datetime.datetime.today(),
+                                            messageindex=self._msgIndex,
                                             file=filename, 
                                             lineno=lineno, 
                                             funcname=funcName, 
                                             message=msg)
                 print(s)
+
+            # Increase the message index.
+            self._msgIndex += 1
 
 
 _defaultLoggerInstance = Logger("Default logger")

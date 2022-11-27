@@ -1,0 +1,50 @@
+modified_hats_local_peak:
+    to_hats_scale: 3
+    to_peak_scale: 1.5
+
+###### Modified HATS parameters ######
+modified_hats:
+	# This should only be non-zero if mode is "Simple".
+	peak_margin: 0
+	# peak, valley or simple.
+	mode: 'valley'
+	# Size of the Gaussian blur kernel.
+	blur_kernel_size: 11
+	# Decimal fraction (0-1). If a previous detection with associated candidates is given, 
+	# only intensities above max_intensity_change*I are considered, where I is the max intensity.
+	# from the previous detection.
+	max_intensity_change: 0.7
+	# Contours with an area less than this is ingored (non-candidate).
+	min_area: 30
+	# Contours with area > min_area and circle extent < min_circle_extent are ignored.
+	min_circle_extent: 0.2
+	# If the intensity I_MAX of the image is the max value (e.g 255),
+	# the chosen threshold is simply I_MAX-1
+	ignore_at_max: false
+
+###### Local Peak parameters ######
+local_peak:
+	# Size of the local max kernel.
+	kernel_size: 11
+	# Decimal fraction that determine the threshold for a peak 
+	# i.e. thresh = I*p, where I is the intensity of the peak
+	# Just put the same value here for now
+	p_min: 0.975
+	p_max: 0.975
+	# Maximum number of iterations.
+	max_iter: 50
+	# Removes non-candidates AFTER the desired number of peaks have
+	# been detected (will result in fewer candidates being processed).
+	filter_after: true
+	blur_kernel_size: 11
+	# Decimal fraction (0-1). If a previous detection with associated candidates is given, 
+	# only intensities above max_intensity_change*I are considered, where I is the max intensity.
+	# from the previous detection.
+	max_intensity_change: 0.7
+	# For Local Peak, contours with an area > min_area are checked with min_circle_extent.
+	min_area: 30
+	# Contours with area > min_area and circle extent < min_circle_extent are ignored.
+	min_circle_extent: 0.2
+	# If the intensity I_MAX of the peak is the max value (e.g 255),
+	# the chosen threshold is simply I_MAX-1
+	ignore_at_max: false

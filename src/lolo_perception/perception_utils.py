@@ -19,12 +19,13 @@ def plotPoseImageInfo(poseImg,
                       progress=0,
                       fixedAxis=False):
 
-    if roiCntUpdated is not None:
-        poseImgTmp = poseImg.copy()
-        poseImg = poseImg*(1 - progress*0.5)
-        poseImg = poseImg.astype(np.uint8)
+    # This takes a lot of time!!! Dont do it
+    # if roiCntUpdated is not None:
+    #     poseImgTmp = poseImg.copy()
+    #     poseImg = poseImg*(1 - progress*0.5)
+    #     poseImg = poseImg.astype(np.uint8)
 
-        poseImg[roiCntUpdated[0][1]:roiCntUpdated[3][1], roiCntUpdated[0][0]:roiCntUpdated[1][0], :] = poseImgTmp[roiCntUpdated[0][1]:roiCntUpdated[3][1], roiCntUpdated[0][0]:roiCntUpdated[1][0], :]
+    #     poseImg[roiCntUpdated[0][1]:roiCntUpdated[3][1], roiCntUpdated[0][0]:roiCntUpdated[1][0], :] = poseImgTmp[roiCntUpdated[0][1]:roiCntUpdated[3][1], roiCntUpdated[0][0]:roiCntUpdated[1][0], :]
 
     cv.putText(poseImg, 
                titleText, 
@@ -135,17 +136,20 @@ def plotPoseImageInfo(poseImg,
 
     return poseImg
 
-def plotPoseImageInfoSimple(poseImg, dsPose, poseAquired):
+def plotPoseImageInfoSimple(poseImg, dsPose, poseAquired, roiCnt, progress):
     if dsPose:
-        plotAxis(poseImg, 
-                 dsPose.translationVector, 
-                 dsPose.rotationVector, 
-                 dsPose.camera, 
-                 dsPose.featureModel.features, 
-                 dsPose.featureModel.maxRad,
-                 color=None,
-                 thickness=5,
-                 fixedAxis=False)
+        if poseAquired:
+            plotAxis(poseImg, 
+                    dsPose.translationVector, 
+                    dsPose.rotationVector, 
+                    dsPose.camera, 
+                    dsPose.featureModel.features, 
+                    dsPose.featureModel.maxRad,
+                    color=None,
+                    thickness=5,
+                    fixedAxis=False)
+        if roiCnt is not None:
+            drawProgressROI(poseImg, progress, roiCnt, (255,255,255))
 
     return poseImg
 
@@ -503,7 +507,7 @@ def plotHistogram(img, N, showPeaks=False, showValleys=False, highLightFirstPeak
     plt.ylabel("Frequency")
     plt.xlabel("Intensity")
 
-def regionOfInterest(points, wMargin, hMargin):
+def regionOfInterest(points, wMargin, hMargin, shape=None):
     topMost = [None, np.inf]
     rightMost = [-np.inf]
     bottomMost = [None, -np.inf]
@@ -527,6 +531,14 @@ def regionOfInterest(points, wMargin, hMargin):
     leftMost[0] -= wMargin
     cnt = np.array([topMost, rightMost, bottomMost, leftMost], dtype=np.int32)
     x, y, w, h = cv.boundingRect(cnt)
+
+    if shape is not None:
+        # TODO: This doesn't really do what it is intended to do but it's alright
+        x = max(0, x)
+        x = min(shape[1]-1, x)
+        y = max(0, y)
+        y = min(shape[0]-1, y)
+
     roiCnt = np.array([[x, y], [x+w, y], [x+w, y+h], [x, y+h]], dtype=np.int32)
 
     return (x, y, w, h), roiCnt
@@ -562,9 +574,9 @@ def plotPiChart(img, center, size=20, **kwargs):
     cv.rectangle(img, 
                 (center[0], center[1]+size), 
                 (center[0]+size*6, center[1]-size), 
-                color=(200, 200, 200), 
+                color=(100,100,100), 
                 thickness=-1)
-    cv.circle(img, center, int(size*1.1), (200,200,200), -1)
+    cv.circle(img, center, int(size*1.1), (100,100,100), -1)
     startAngle = -90
     for i, (k, c) in enumerate(zip(kwargs, colors)):
         val = kwargs[k]

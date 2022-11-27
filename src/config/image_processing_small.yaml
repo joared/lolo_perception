@@ -1,0 +1,24 @@
+modified_hats_local_peak:
+    to_hats_scale: 3
+    to_peak_scale: 1.5
+
+modified_hats:
+    blur_kernel_size: &blur_kernel_size 5
+    min_area: &min_area 20
+    min_circle_extent: &min_circle_extent 0.2
+    max_intensity_change: &max_intensity_change 0.7
+    ignore_at_max: false
+    peak_margin: 0
+    mode: 'valley'
+
+local_peak:
+    blur_kernel_size: *blur_kernel_size
+    min_area: *min_area
+    min_circle_extent: *min_circle_extent
+    max_intensity_change: *max_intensity_change
+    ignore_at_max: false
+    kernel_size: 11
+    p_min: 0.975
+    p_max: 0.975
+    max_iter: 100
+    filter_after: true
