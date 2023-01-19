@@ -11,18 +11,21 @@ import time
 from datetime import datetime
 import numpy as np
 import lolo_perception.py_logging as logging
+from lolo_perception.msg import FeatureModel as FeatureModelMsg
 
+import lolo_perception.definitions as loloDefs
+from lolo_perception.utils import Timer
 from lolo_perception.perception_ros_utils import vectorToPose, vectorToTransform, poseToVector, lightSourcesToMsg, featurePointsToMsg
 from lolo_perception.perception import Perception
-from lolo_perception.perception_utils import scaleImage
+from lolo_perception.perception_utils import scaleImage, plotFPS
 from lolo_perception.reprojection_utils import plot2DView
+from lolo_perception.camera_model import Camera
 
 class PerceptionNode:
-    def __init__(self, featureModel, hz, cvShow=False):
-        self.cameraTopic = "lolo_camera"
-        self.cameraInfoSub = rospy.Subscriber("lolo_camera/camera_info", CameraInfo, self._getCameraCallback)
-        self.camera = None
+    def __init__(self):
 
+        # Some custom logging, basically a rip off of pythons logging module. 
+        # Logs are saved in the logging directory
         logging.basicConfig(filename=os.path.join(rospkg.RosPack().get_path("lolo_perception"), "logging/{}.log".format(datetime.today())), 
                             level=logging.TRACE,
                             format="[{levelname:^8s}]:[{timestamp}]:[{messageindex:0>4}]:[{file:^20s}]:[{funcname: ^15s}]:[{lineno:^4}]: {message}",
@@ -30,17 +33,51 @@ class PerceptionNode:
                             printFormat="[{levelname:^8s}]:[{messageindex:0>4}]: {message}",
                             )
 
-        logging.info("------ Perception node started ------")
+        logging.info("------ Perception node setup ------")
 
-        while not rospy.is_shutdown() and self.camera is None:
-            logging.info("Waiting for camera info to be published")
-            rospy.sleep(1)
+        # Get the camera configuration
+        logging.info("Waiting for camera info to be published...")
+        msg = rospy.wait_for_message("lolo_camera/camera_info", CameraInfo, timeout=None)
+        logging.info("Camera info received!")
 
-        self.hz = hz
-        self.cvShow = cvShow
+        # Using only P (D=0), we should subscribe to the rectified image topic
+        # Using K and D, we should subscribe to the raw image topic
+        # Use either K and D or just P
+        # https://answers.ros.org/question/119506/what-does-projection-matrix-provided-by-the-calibration-represent/
+        # https://github.com/dimatura/ros_vimdoc/blob/master/doc/ros-camera-info.txt
+        # Assume that subscribed images will be rectified
+        projectionMatrix = np.array(msg.P, dtype=np.float32).reshape((3,4))[:, :3]
+        camera = Camera(cameraMatrix=projectionMatrix, 
+                        distCoeffs=np.zeros((1,4), dtype=np.float32),
+                        resolution=(msg.height, msg.width))
 
-        self.perception = Perception(self.camera, featureModel)
+        # Get the docking station configuration, either from yaml (if given) otherwise from message
+        featureModelYaml = rospy.get_param("~feature_model_yaml", None)
+        if featureModelYaml:
+            dockingStationYamlPath = os.path.join(os.path.join(loloDefs.FEATURE_MODEL_CONFIG_DIR, featureModelYaml))
+            featureModel = FeatureModel.fromYaml(dockingStationYamlPath)
+        else:
 
+            logging.info("Waiting for feature model to be published...")
+            msg = rospy.wait_for_message("feature_model", FeatureModelMsg, timeout=None)
+            logging.info("Feature model received!")
+            featureModel = FeatureModel(msg.name, 
+                                        np.array([[p.x, p.y, p.z] for p in msg.features]), 
+                                        msg.placementUncertainty, 
+                                        msg.detectionTolerance)
+
+        # Initialize the tracker
+        configYaml = rospy.get_param("~tracker_yaml")
+        trackingConfigPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "config/tracking_config/{}".format(configYaml))
+        self.perception = Perception.create(trackingConfigPath, camera, featureModel)
+        
+        # Operating frequency
+        self.fps = rospy.get_param("~hz")
+        self.fpsTimer = Timer("FPS timer", nAveragSamples=20)
+        # If True, displayes the tracking images using opencv imshow
+        self.cvShow = rospy.get_param("~cv_show")
+
+        # Setup subscribers/publishers
         self.imageMsg = None
         self.bridge = CvBridge()
         self.imgSubsciber = rospy.Subscriber('lolo_camera/image_rect_color', Image, self._imgCallback)
@@ -68,32 +105,6 @@ class PerceptionNode:
         self._cameraPoseMsg = None
         self.cameraPoseSub = rospy.Subscriber("lolo/camera/pose", PoseWithCovarianceStamped, self._cameraPoseSub)
 
-        self.hzs = []
-
-    def _getCameraCallback(self, msg):
-        """
-        Use either K and D or just P
-        https://answers.ros.org/question/119506/what-does-projection-matrix-provided-by-the-calibration-represent/
-        https://github.com/dimatura/ros_vimdoc/blob/master/doc/ros-camera-info.txt
-        """
-        from lolo_perception.camera_model import Camera
-        # Using only P (D=0), we should subscribe to the rectified image topic
-        projectionMatrix = np.array(msg.P, dtype=np.float32).reshape((3,4))[:, :3]
-        #scale = 1.36
-        #projectionMatrix[0,0] *= scale
-        #projectionMatrix[1,1] *= scale
-        camera = Camera(cameraMatrix=projectionMatrix, 
-                        distCoeffs=np.zeros((1,4), dtype=np.float32),
-                        resolution=(msg.height, msg.width))
-        # Using K and D, we should subscribe to the raw image topic
-        #_camera = Camera(cameraMatrix=np.array(msg.K, dtype=np.float32).reshape((3,3)), 
-        #                distCoeffs=np.array(msg.D, dtype=np.float32),
-        #                resolution=(msg.height, msg.width))
-        self.camera = camera
-
-        # We only want one message
-        self.cameraInfoSub.unregister()
-
     def _imgCallback(self, msg):
         self.imageMsg = msg
 
@@ -116,7 +127,7 @@ class PerceptionNode:
             self._cameraPoseMsg = None
         
 
-        start = time.time()
+        self.fpsTimer.start()
 
         (dsPose,
          poseAquired,
@@ -126,31 +137,13 @@ class PerceptionNode:
                                                  estDSPose, 
                                                  estCameraPoseVector=cameraPoseVector)
 
-        elapsed = time.time() - start
-        virtualHZ = 1./elapsed
-        hz = min(self.hz, virtualHZ)
-
-        self.hzs.append(virtualHZ)
+        self.fpsTimer.stop()
+        fpsVirtual = 1./self.fpsTimer.elapsed()
+        fps = min(self.fps, fpsVirtual)
     
-        logging.debug("Average FPS: {}".format(sum(self.hzs)/float(len(self.hzs))))
+        logging.debug("Average FPS: {} (n = {})".format(1./self.fpsTimer.avg(), self.fpsTimer.nAveragSamples))
 
-        cv.putText(poseImg, 
-                   "FPS {}".format(round(hz, 1)), 
-                   (int(poseImg.shape[1]*4/5), 25), 
-                   cv.FONT_HERSHEY_SIMPLEX, 
-                   0.7, 
-                   color=(0,255,0), 
-                   thickness=2, 
-                   lineType=cv.LINE_AA)
-
-        cv.putText(poseImg, 
-                   "Virtual FPS {}".format(round(virtualHZ, 1)), 
-                   (int(poseImg.shape[1]*4/5), 45), 
-                   cv.FONT_HERSHEY_SIMPLEX, 
-                   0.7, 
-                   color=(0,255,0), 
-                   thickness=2, 
-                   lineType=cv.LINE_AA)
+        plotFPS(poseImg, fps, fpsVirtual)
 
         timeStamp = rospy.Time.now()
         # publish pose if pose has been aquired
@@ -192,10 +185,9 @@ class PerceptionNode:
                     )
 
         if publishImages:
+            self.imgPosePublisher.publish(self.bridge.cv2_to_imgmsg(poseImg))
             self.imgProcDrawPublisher.publish(self.bridge.cv2_to_imgmsg(processedImg))
             self.imgProcPublisher.publish(self.bridge.cv2_to_imgmsg(self.perception.lightSourceDetector.img))
-            #if dsPose:
-            self.imgPosePublisher.publish(self.bridge.cv2_to_imgmsg(poseImg))
 
         if dsPose:
             # if the light source candidates have been associated, we pusblish the associated candidates
@@ -207,12 +199,14 @@ class PerceptionNode:
         return dsPose, poseAquired, candidates
 
     def run(self, poseFeedback=True, publishPose=True, publishCamPose=False, publishImages=True):
-        rate = rospy.Rate(self.hz)
+        rate = rospy.Rate(self.fps)
         # currently estimated docking station pose
         # send the pose as an argument in update
         # for the feature extraction to consider only a region of interest
         # near the estimated pose
         estDSPose = None
+
+        logging.info("------ Perception node started ------")
 
         while not rospy.is_shutdown():
             
@@ -236,22 +230,38 @@ class PerceptionNode:
 
             if self.cvShow:
                 show = False
-                imageWidth = 500. # Desired displayed image width
+                imageWidth = 720. # Desired displayed image width
+                displayImg = None
+                
                 if self.perception.poseImg is not None:
                     show = True
 
                     img = self.perception.poseImg
-                    img = scaleImage(img, imageWidth/img.shape[0])
-                    cv.imshow("pose image", img)
+                    img = scaleImage(img, imageWidth/img.shape[1])
+                    if displayImg is not None:
+                        displayImg = np.concatenate((displayImg, img), axis=0)
+                    else:
+                        displayImg = img
 
                 if self.perception.processedImg is not None:
                     show = True
                     
                     img = self.perception.processedImg
-                    img = scaleImage(img, imageWidth/img.shape[0])
-                    cv.imshow("processed image", img)
+                    img = scaleImage(img, imageWidth/img.shape[1])
+                    if displayImg is not None:
+                        displayImg = np.concatenate((displayImg, img), axis=0)
+                    else:
+                        displayImg = img
+
+                if self.perception.lightSourceDetector.img is not None:
+                    show = True
+                    
+                    img = self.perception.lightSourceDetector.img
+                    img = scaleImage(img, imageWidth/img.shape[1])
+                    cv.imshow("binary image", img)
 
                 if show:
+                    cv.imshow("Tracking image", displayImg)
                     cv.waitKey(1)
 
             rate.sleep()
@@ -264,16 +274,10 @@ if __name__ == '__main__':
     
     rospy.init_node('perception_node')
 
-    featureModelYaml = rospy.get_param("~feature_model_yaml")
-    hz = rospy.get_param("~hz")
-    cvShow = rospy.get_param("~cv_show")
     publishCamPose = rospy.get_param("~publish_cam_pose")
     poseFeedBack = rospy.get_param("~pose_feedback")
 
-    featureModelYamlPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "feature_models/{}".format(featureModelYaml))
-    featureModel = FeatureModel.fromYaml(featureModelYamlPath)
-
-    perception = PerceptionNode(featureModel, hz, cvShow=cvShow)
+    perception = PerceptionNode()
     
     try: 
         perception.run(poseFeedback=poseFeedBack, publishPose=True, publishCamPose=publishCamPose, publishImages=True)

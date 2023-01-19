@@ -51,7 +51,7 @@ class Logger:
     def __init__(self, 
                  name="Logger", 
                  level=NOTSET, 
-                 printLevel=None, 
+                 printLevel=WARNING, 
                  format="[{levelname:^8s}]:[{timestamp}]:[{file:^20s}]:[{funcname: ^15s}]:[{lineno:^4}]: {message}", 
                  printFormat="[{levelname:^8s}]:[{messageindex:0>4}]: {message}",
                  filename=None, 

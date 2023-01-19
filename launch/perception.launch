@@ -9,7 +9,8 @@
   <arg name="rviz" default="false"/>
 
   <!--Some parameters for the perception node-->
-  <arg name="feature_model_yaml" default="big_prototype_5.yaml" />
+  <arg name="feature_model_yaml" default="false" />
+  <arg name="tracker_yaml" default="example_tracker.yaml" />
 
   <include file="$(find lolo_perception)/launch/usb_cam.launch" if="$(eval arg('video_device') != false)">
     <arg name="video_device" value="$(arg video_device)"/>
@@ -17,6 +18,7 @@
 
   <node name="perception_node" pkg="lolo_perception" type="perception_node.py" output="screen" >
     <param name="feature_model_yaml" value="$(arg feature_model_yaml)"/>
+    <param name="tracker_yaml" value="$(arg tracker_yaml)"/>
     <param name="hz" value="$(arg hz)"/>
     <param name="cv_show" value="$(arg cv_show)"/>
     <param name="publish_cam_pose" value="$(eval arg('perspective') == 'dockingstation')"/>

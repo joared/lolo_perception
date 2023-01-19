@@ -138,6 +138,14 @@ def plotPoseImageInfo(poseImg,
 
 def plotPoseImageInfoSimple(poseImg, dsPose, poseAquired, roiCnt, progress):
     if dsPose:
+        # This takes a lot of time!!! Dont do it
+        # if roiCnt is not None:
+        #     poseImgTmp = poseImg.copy()
+        #     poseImg = poseImg*(1 - progress*0.5)
+        #     poseImg = poseImg.astype(np.uint8)
+
+        #     poseImg[roiCnt[0][1]:roiCnt[3][1], roiCnt[0][0]:roiCnt[1][0], :] = poseImgTmp[roiCnt[0][1]:roiCnt[3][1], roiCnt[0][0]:roiCnt[1][0], :]
+
         if poseAquired:
             plotAxis(poseImg, 
                     dsPose.translationVector, 
@@ -453,19 +461,6 @@ def reprojectionError(translationVector, rotationVector, camera, objPoints, imag
 
     return reprojErrs, rms
 
-def undistortImage(img, camera):
-    # How to undistort image: https://docs.opencv.org/4.x/dc/dbb/tutorial_py_calibration.html
-    h, w = img.shape[:2]
-    newcameramtx, roi = cv.getOptimalNewCameraMatrix(camera.cameraMatrix, 
-                                                     camera.distCoeffs, 
-                                                     (w,h), 
-                                                     0, 
-                                                     (w,h))
-
-    imgRect = cv.undistort(img, camera.cameraMatrix, camera.distCoeffs, None, newcameramtx)
-    x, y, w, h = roi
-    imgRect = imgRect[y:y+h, x:x+w]
-    return imgRect, newcameramtx
 
 def plotHistogram(img, N, showPeaks=False, showValleys=False, highLightFirstPeakValley=False, highlightPeak=None, facecolor=None, limitAxes=True, alpha=.4):
     hist = cv.calcHist([img], [0], None, [256], [0,256])
@@ -514,16 +509,16 @@ def regionOfInterest(points, wMargin, hMargin, shape=None):
     leftMost = [np.inf]
     for p in points:
         if p[1] < topMost[1]:
-            topMost = p
+            topMost = list(p)
 
         if p[0] > rightMost[0]:
-            rightMost = p
+            rightMost = list(p)
 
         if p[1] > bottomMost[1]:
-            bottomMost = p
+            bottomMost = list(p)
 
         if p[0] < leftMost[0]:
-            leftMost = p
+            leftMost = list(p)
     
     topMost[1] -= hMargin
     rightMost[0] += wMargin
@@ -533,11 +528,16 @@ def regionOfInterest(points, wMargin, hMargin, shape=None):
     x, y, w, h = cv.boundingRect(cnt)
 
     if shape is not None:
-        # TODO: This doesn't really do what it is intended to do but it's alright
-        x = max(0, x)
-        x = min(shape[1]-1, x)
-        y = max(0, y)
-        y = min(shape[0]-1, y)
+        if x < 0:
+            w += x
+            x = 0
+        else:
+            x = min(shape[1]-1, x)
+        if y < 0:
+            h += y
+            y = 0
+        else:
+            y = min(shape[0]-1, y)
 
     roiCnt = np.array([[x, y], [x+w, y], [x+w, y+h], [x, y+h]], dtype=np.int32)
 
@@ -594,12 +594,38 @@ def plotPiChart(img, center, size=20, **kwargs):
 
         startAngle += angle
 
+def plotFPS(img, fps, fpsVirtual=None):
+    cv.putText(img, 
+                "FPS {}".format(round(fps, 1)), 
+                (int(img.shape[1]*4/5), 25), 
+                cv.FONT_HERSHEY_SIMPLEX, 
+                0.7, 
+                color=(0,255,0), 
+                thickness=2, 
+                lineType=cv.LINE_AA)
+
+    if fpsVirtual is not None:
+        cv.putText(img, 
+                   "Virtual FPS {}".format(round(fpsVirtual, 1)), 
+                   (int(img.shape[1]*4/5), 45), 
+                   cv.FONT_HERSHEY_SIMPLEX, 
+                   0.7, 
+                   color=(0,255,0), 
+                   thickness=2, 
+                   lineType=cv.LINE_AA)
+
+    return img
+
 def scaleImage(img, scalePercent):
     """
     Scales the image (up or down) base on scalePercentage.
     Preserves aspect ratio.
     """
     return cv.resize(img, (int(img.shape[1]*scalePercent) , int(img.shape[0]*scalePercent)))
+
+def scaleImageToWidth(img, desiredWidth):
+    return scaleImage(img, float(desiredWidth)/img.shape[1])
+
 
 class PoseAndImageUncertaintyEstimator:
     """

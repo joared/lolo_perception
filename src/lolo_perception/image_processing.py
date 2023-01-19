@@ -3,7 +3,7 @@ import time
 import cv2 as cv
 import numpy as np
 import itertools
-from lolo_perception.perception_utils import plotHistogram, regionOfInterest
+from lolo_perception.perception_utils import plotHistogram, regionOfInterest, scaleImage
 import lolo_perception.py_logging as logging
 
 def drawInfo(img, center, text, color=(255, 0, 0), fontScale=1, thickness=2):
@@ -444,7 +444,7 @@ def localMaxSupressed(gray, kernel, p):
     localMaxImg = cv.bitwise_and(gray, gray, mask=eqMask)
     return localMaxImg
 
-def localMaxChange(gray, kernel, p):
+def localMaxDiff(gray, kernel, p):
     dilated = cv.dilate(gray, kernel, borderValue=255, iterations=1)
     eroded = cv.erode(gray, kernel, borderValue=255, iterations=1)
     if p < 1:
@@ -458,11 +458,27 @@ def localMaxChange(gray, kernel, p):
     localMaxImg = cv.bitwise_and(gray, gray, mask=eqMask)
     return localMaxImg
 
+def localMaxDiff2(gray, localMaxKernel, localMinKernel, p):
+    dilated = cv.dilate(gray, localMaxKernel, borderValue=0, iterations=1)
+    eroded = cv.erode(gray, localMinKernel, borderValue=0, iterations=1)
+    if p < 1:
+        # Percentage threshold
+        dilatedSupressed = dilated.astype(np.float32)*p
+    else:
+        # Fixed threshold
+        dilatedSupressed = dilated-p
+    dilatedSupressed = dilatedSupressed.astype(np.uint8)
+    mask1 = cv.compare(gray, dilatedSupressed, cv.CMP_GE)
+    mask2 = cv.compare(gray, eroded, cv.CMP_GE)
+    localMaxImg = cv.bitwise_and(gray, gray, mask=eqMask)
+
+    return localMaxImg
+
 def localMin(gray, kernel):
     dilated = cv.erode(gray, kernel, borderValue=0, iterations=1)
     eqMask = cv.compare(gray, dilated, cv.CMP_EQ)
-    localMaxImg = cv.bitwise_and(gray, gray, mask=eqMask)
-    return localMaxImg
+    localMinImg = cv.bitwise_and(gray, gray, mask=eqMask)
+    return localMinImg
 
 
 def findContourAt(gray, center):    
@@ -704,6 +720,129 @@ def findNPeaks2(gray, kernel, pMin, pMax, n, minThresh=0, margin=1, ignorePAtMax
                     cv.drawContours(drawImg, [cntPeakOffset], 0, (255, 0, 0), -1)
 
         peaksDilationMasked = cv.drawContours(peaksDilationMasked, [cntPeak], 0, (0, 0, 0), -1)
+
+        if iterations >= maxIter:
+            logging.debug("Peak maxiter reached")
+            break
+    
+    if drawImg is not None:
+        for i, pc in enumerate(peakCenters):
+            cv.circle(drawImg, pc, 1, (255,0,255), 1)
+            drawInfo(drawImg, (pc[0]+15,pc[1]-15), str(i+1))
+
+    return peaksDilation, peaksDilationMasked, peakCenters, peakContours, iterations
+
+def findNPeaks3(gray, kernel, pMin, pMax, n, windowRad, minThresh=0, margin=1, ignorePAtMax=True, offset=(0,0), maxIter=10000000, validCntCB=None, drawImg=None, drawInvalidPeaks=False):
+    """
+
+    """
+    if windowRad == 0:
+        return findNPeaks2(gray, kernel, pMin, pMax, n, minThresh, margin, ignorePAtMax, offset, maxIter, validCntCB, drawImg, drawInvalidPeaks)
+
+    peaksDilation = localMax(gray, kernel, borderValue=0) # local max
+    _, peaksDilation = cv.threshold(peaksDilation, minThresh, 255, cv.THRESH_TOZERO)
+
+    grayMasked = gray.copy()
+    peaksDilationMasked = peaksDilation.copy()
+    maxIntensity = np.inf
+    peakCenters = []
+    peakContours = []
+
+    iterations = 0
+    
+    while True:
+        if len(peakCenters) >= n:
+            logging.debug("Found {} peaks, breaking".format(n))
+            break
+
+        maxIndx = np.unravel_index(np.argmax(peaksDilationMasked), gray.shape)
+        center = maxIndx[1], maxIndx[0]
+        maxIntensity = np.max(peaksDilationMasked)
+
+        if maxIntensity == 0:
+            break
+        if maxIntensity == 255 and ignorePAtMax:
+            # if it is maximum intensity, ignore p
+            logging.debug("Ignoring p at max")
+            threshold = 254 # TODO: maybe another value is more suitable?
+        else:
+            #pTemp = maxIntensity/255.*(pMax-pMin) + pMin
+            #pTemp = pDecay(.1801, pMin, pMax, I=maxIntensity) # with pMax = .98
+            pTemp = pDecay(.175, pMin, pMax, I=maxIntensity)
+            threshold = int(pTemp*maxIntensity - 1)
+
+        windowRadius = windowRad
+        if maxIntensity >= 230:
+            windowRadius = 300
+
+        x = center[0]-windowRadius
+        y = center[1]-windowRadius
+        h = windowRadius*2 - 1
+        w = windowRadius*2 - 1
+        center = windowRadius, windowRadius
+        if x < 0:
+            center = center[0]+x, center[1]
+            w += x
+            x = 0
+        if y < 0:
+            center = center[0], center[1]+y
+            h += y
+            y = 0
+
+        windowImg = grayMasked[y:y+h, x:x+w]
+        ret, threshImg = cv.threshold(windowImg, threshold, 256, cv.THRESH_BINARY)
+        windowOffset = x, y
+        totalOffset = (x+offset[0], y+offset[1])
+
+        iterations += 1
+        # TODO: this could probably be more efficient, extracting all contours at this intensity level at the same time
+
+        cntPeak, cntPeakOffset = findPeakContourAt(threshImg, center, offset=totalOffset)#, mode=cv.RETR_LIST)
+
+        if False:
+            centerTmp = (center[0]+totalOffset[0], center[1]+totalOffset[1])
+            tempImg = drawImg.copy()
+            xTemp = totalOffset[0]
+            yTemp = totalOffset[1]
+            cv.rectangle(tempImg, (xTemp, yTemp), (xTemp+w, yTemp+h), color=(255,0,0), thickness=2)
+            cv.circle(tempImg, centerTmp, 3, color=(255,0,255))
+            cv.imshow("local peak 3", scaleImage(tempImg, 0.3))
+            cv.waitKey(0)
+
+        if cntPeak is None:
+            logging.error("Something went wrong...")
+            break
+
+        # Check if contour is on edge
+        cnts = [cntPeak]
+        if maxIntensity != 255:
+            # we only remove edge contours if they don't have max value
+            cnts = removeContoursOnEdges(threshImg, cnts)
+        if not cnts:
+            # Edge
+            if drawImg is not None and drawInvalidPeaks:
+                cv.drawContours(drawImg, [cntPeakOffset], 0, (0, 255, 255), 1)
+        elif validCntCB is not None and validCntCB(cntPeak) is False:
+            if drawImg is not None and drawInvalidPeaks:
+                # Invalid contour
+                cv.drawContours(drawImg, [cntPeakOffset], 0, (255, 0, 255), 1)
+        else:
+            for pc in peakCenters:
+                    
+                if withinContour(pc[0], pc[1], cntPeakOffset) or nextToContour(pc[0], pc[1], cntPeakOffset, margin=margin): # TODO: this should be checked using the center of the new peak instead
+                    # Overlapping
+                    if drawImg is not None and drawInvalidPeaks:
+                        cv.drawContours(drawImg, [cntPeakOffset], 0, (0, 0, 255), 1)
+                    break
+
+            else:
+                # Found
+                peakCenters.append((center[0]+totalOffset[0], center[1]+totalOffset[1]))
+                peakContours.append(cntPeakOffset)
+                if drawImg is not None:
+                    cv.drawContours(drawImg, [cntPeakOffset], 0, (255, 0, 0), -1)
+
+        peaksDilationMasked = cv.drawContours(peaksDilationMasked, [cntPeak], 0, (0, 0, 0), -1, offset=windowOffset)
 
         if iterations >= maxIter:
             logging.debug("Peak maxiter reached")
@@ -1364,14 +1503,14 @@ def featureAssociationSquareImprovedWithFilter(featurePoints, detectedLightSourc
     wBottom = bottomRight.center[0]-bottomLeft.center[0]
     if abs(wTop-wBottom) > max(wTop, wBottom)*p:
         logging.trace("Ignored non-square")
-        return None, []
+        return None
 
     # check if height is similar
     hLeft = bottomLeft.center[1]-topLeft.center[1]
     hRight = bottomRight.center[1]-topRight.center[1]
     if abs(hLeft-hRight) > max(hLeft, hRight)*p:
         logging.trace("Ignored non-square")
-        return None, []
+        return None
 
     associatedLightSources = [None]*len(featurePoints)
     #detectedLightSources = list(detectedLightSources)
@@ -1391,9 +1530,8 @@ def featureAssociationSquareImprovedWithFilter(featurePoints, detectedLightSourc
         else:
             raise Exception("Something went wrong")
     
-    
 
-    return associatedLightSources, []
+    return associatedLightSources
 
 def featureAssociation(featurePoints, detectedLightSources, featurePointsGuess=None, drawImg=None):
     """
@@ -1404,7 +1542,7 @@ def featureAssociation(featurePoints, detectedLightSources, featurePointsGuess=N
     detectedPoints = [ls.center for ls in detectedLightSources]
     if len(detectedPoints) < len(featurePoints):
         logging.warn("Not enough detected features given")
-        return [], []
+        return None
 
     if featurePointsGuess is None:
         centerx, centery  = np.mean(detectedPoints, axis=0)
@@ -1452,7 +1590,7 @@ def featureAssociation(featurePoints, detectedLightSources, featurePointsGuess=N
             drawInfo(drawImg, (int(fpx), int(fpy)), str(i), color=(0, 0, 255))
             cv.circle(drawImg, (int(px), int(py)), 2, (255, 0, 0), 3)
 
-    return associatedLightSources, featurePointsGuess
+    return associatedLightSources
 
 
 class LightSource:
@@ -1462,13 +1600,18 @@ class LightSource:
         self.center = contourCentroid(cnt)
         self.area = cv.contourArea(cnt)
         self.ratio = contourRatio(cnt)
+        self.perimeter = max(1, cv.arcLength(cnt,True))
+        self.circularity = 4*np.pi*self.area/self.perimeter # https://learnopencv.com/blob-detection-using-opencv-python-c/
         self.circleCenter, self.radius = cv.minEnclosingCircle(cnt)
 
         self.intensity = intensity
 
         self.rmseUncertainty = self.radius
 
+        self.overlappingLightSources = []
+
     def circleExtent(self):
+        #return self.circularity
         return contourRatio(self.cnt)
 
 class LightSourceTracker:

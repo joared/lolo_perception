@@ -2,8 +2,9 @@
 import numpy as np
 import rospy
 from scipy.spatial.transform import Rotation as R
-from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped, PoseArray, Pose, Quaternion, TransformStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped, PoseArray, Pose, Point, Quaternion, TransformStamped
 from sensor_msgs.msg import CameraInfo
+from lolo_perception.msg import FeatureModel as FeatureModelMsg
 from tf.transformations import quaternion_from_matrix
 import yaml
 import os
@@ -128,8 +129,21 @@ def msgToImagePoints(msg):
 
     return imgPoints
 
+def yamlToFeatureModelMsg(featureModelYaml):
+    from lolo_perception.feature_model import FeatureModel
+    fm = FeatureModel.fromYaml(featureModelYaml)
+    msg = FeatureModelMsg()
+    msg.name = fm.name
+    msg.detectionTolerance = fm.detectionTolerance
+    msg.placementUncertainty = fm.placementUncertainty
+    for f in fm.features:
+        x, y, z = f
+        p = Point(x=x, y=y, z=z)
+        msg.features.append(p)
+
+    return msg
+
 def readCameraYaml(cameraYamlPath):
-    cameraYamlPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), cameraYamlPath)
     with open(cameraYamlPath, "r") as file:
         calibData = yaml.load(file)
     

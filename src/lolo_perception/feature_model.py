@@ -50,7 +50,7 @@ class FeatureModel:
     # Previous value
     # DEFAULT_DETECTION_TOLERANCE_P = 0.02
 
-    def __init__(self, name, features, placementUncertainty=0, detectionTolerance=0, euler=(0, 0, 0)):
+    def __init__(self, name, features, placementUncertainty=0.0, detectionTolerance=0.0, euler=(0, 0, 0)):
         self.name = name
         
         self.features = features
@@ -118,18 +118,18 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     featureModelYaml = args.feature_model_yaml
-    yamlPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "feature_models/{}".format(featureModelYaml))
+    yamlPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "config/feature_models/{}".format(featureModelYaml))
     fm = FeatureModel.fromYaml(yamlPath)
 
     print("Configuration:")
     print(fm.features)
 
     r = R.from_euler("XYZ", (-np.pi/2,0,0))
-    featurePoints = r.apply(fm.features)
+    featurePointsTransformed = r.apply(fm.features)
 
     fig = plt.figure()
     ax = fig.gca(projection='3d')
-    ax.scatter(*zip(*featurePoints))
+    ax.scatter(*zip(*featurePointsTransformed))
 
     l = fm.maxRad
     xAxis = r.as_dcm()[:, 0]*l
@@ -140,8 +140,8 @@ if __name__ == "__main__":
     ax.plot(*zip(yAxis, [0]*3), color="g")
     ax.plot(*zip(zAxis, [0]*3), color="b")
 
-    for i, fp in enumerate(featurePoints):
-        ax.text(fp[0]+l*0.03, fp[1]+l*0.03, fp[2]+l*0.03, str(i), [0, 0, 0])
+    for i, fp in enumerate(featurePointsTransformed):
+        ax.text(fp[0]+l*0.03, fp[1]+l*0.03, fp[2]+l*0.03, str(i) + ": " + str([round(c, 3) for c in fm.features[i]]), [0, 0, 0])
 
     size = l
     ax.set_xlim(-size, size)

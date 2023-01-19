@@ -1,0 +1,8 @@
+model_name: big_prototype_5_planar
+features: [[-0.04, -0.3075, 0], 
+           [-0.33, -0.2575, 0],
+           [0.33, -0.2575, 0], 
+           [0.33, 0.2575, 0], 
+           [-0.33, 0.2575, 0]]
+placement_uncertainty: 0.01
+detection_tolerance: 0.03
