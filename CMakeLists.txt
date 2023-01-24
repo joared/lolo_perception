@@ -169,7 +169,7 @@ include_directories(
 #   scripts/my_python_script
 #   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 # )
-catkin_install_python(PROGRAMS nodes/perception_node.py
+catkin_install_python(PROGRAMS nodes/tracker_node.py
                       DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
 
 

@@ -7,8 +7,6 @@ from sensor_msgs.msg import CameraInfo
 from lolo_perception.msg import FeatureModel as FeatureModelMsg
 from tf.transformations import quaternion_from_matrix
 import yaml
-import os
-import rospkg
 
 def vectorToPose(frameID, translationVector, rotationVector, covariance=None, timeStamp=None):
     rotMat = R.from_rotvec(rotationVector).as_dcm()

@@ -237,7 +237,7 @@ class ImageLoader:
             self._isActive = False
             self._isDone = False
             self._cancel = False
-            self.images = []       
+            self.images = []      
 
 
         def isReady(self):

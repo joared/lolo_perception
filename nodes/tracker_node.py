@@ -15,10 +15,10 @@ from lolo_perception.msg import FeatureModel as FeatureModelMsg
 
 import lolo_perception.definitions as loloDefs
 from lolo_perception.utils import Timer
-from lolo_perception.perception_ros_utils import vectorToPose, vectorToTransform, poseToVector, lightSourcesToMsg, featurePointsToMsg
-from lolo_perception.perception import Perception
-from lolo_perception.perception_utils import scaleImage, plotFPS
-from lolo_perception.reprojection_utils import plot2DView
+from lolo_perception.ros_utils import vectorToPose, vectorToTransform, poseToVector, lightSourcesToMsg, featurePointsToMsg
+from lolo_perception.tracker import Tracker
+from lolo_perception.image_processing import scaleImage
+from lolo_perception.plotting_utils import plotFPS
 from lolo_perception.camera_model import Camera
 
 class PerceptionNode:
@@ -26,7 +26,7 @@ class PerceptionNode:
 
         # Some custom logging, basically a rip off of pythons logging module. 
         # Logs are saved in the logging directory
-        logging.basicConfig(filename=os.path.join(rospkg.RosPack().get_path("lolo_perception"), "logging/{}.log".format(datetime.today())), 
+        logging.basicConfig(filename=os.path.join(loloDefs.LOGGING_DIR, "{}.log".format(datetime.today())), 
                             level=logging.TRACE,
                             format="[{levelname:^8s}]:[{timestamp}]:[{messageindex:0>4}]:[{file:^20s}]:[{funcname: ^15s}]:[{lineno:^4}]: {message}",
                             printLevel=logging.INFO,
@@ -69,7 +69,7 @@ class PerceptionNode:
         # Initialize the tracker
         configYaml = rospy.get_param("~tracker_yaml")
         trackingConfigPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "config/tracking_config/{}".format(configYaml))
-        self.perception = Perception.create(trackingConfigPath, camera, featureModel)
+        self.perception = Tracker.create(trackingConfigPath, camera, featureModel)
         
         # Operating frequency
         self.fps = rospy.get_param("~hz")
@@ -229,6 +229,7 @@ class PerceptionNode:
                                                 publishImages=publishImages)
 
             if self.cvShow:
+                # TODO: make a method of this
                 show = False
                 imageWidth = 720. # Desired displayed image width
                 displayImg = None

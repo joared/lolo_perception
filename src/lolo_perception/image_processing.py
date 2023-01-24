@@ -3,8 +3,20 @@ import time
 import cv2 as cv
 import numpy as np
 import itertools
-from lolo_perception.perception_utils import plotHistogram, regionOfInterest, scaleImage
+from lolo_perception.plotting_utils import plotHistogram
 import lolo_perception.py_logging as logging
+
+def scaleImage(img, scalePercent):
+    """
+    Scales the image (up or down) base on scalePercentage.
+    Preserves aspect ratio.
+    """
+    return cv.resize(img, (int(img.shape[1]*scalePercent) , int(img.shape[0]*scalePercent)))
+
+
+def scaleImageToWidth(img, desiredWidth):
+    return scaleImage(img, float(desiredWidth)/img.shape[1])
+
 
 def drawInfo(img, center, text, color=(255, 0, 0), fontScale=1, thickness=2):
     # font
@@ -20,6 +32,49 @@ def drawInfo(img, center, text, color=(255, 0, 0), fontScale=1, thickness=2):
                     fontScale, color, thickness, cv.LINE_AA)
     
     return image
+
+
+def regionOfInterest(points, wMargin, hMargin, shape=None):
+    topMost = [None, np.inf]
+    rightMost = [-np.inf]
+    bottomMost = [None, -np.inf]
+    leftMost = [np.inf]
+    for p in points:
+        if p[1] < topMost[1]:
+            topMost = list(p)
+
+        if p[0] > rightMost[0]:
+            rightMost = list(p)
+
+        if p[1] > bottomMost[1]:
+            bottomMost = list(p)
+
+        if p[0] < leftMost[0]:
+            leftMost = list(p)
+    
+    topMost[1] -= hMargin
+    rightMost[0] += wMargin
+    bottomMost[1] += hMargin
+    leftMost[0] -= wMargin
+    cnt = np.array([topMost, rightMost, bottomMost, leftMost], dtype=np.int32)
+    x, y, w, h = cv.boundingRect(cnt)
+
+    if shape is not None:
+        if x < 0:
+            w += x
+            x = 0
+        else:
+            x = min(shape[1]-1, x)
+        if y < 0:
+            h += y
+            y = 0
+        else:
+            y = min(shape[0]-1, y)
+
+    roiCnt = np.array([[x, y], [x+w, y], [x+w, y+h], [x, y+h]], dtype=np.int32)
+
+    return (x, y, w, h), roiCnt
+
 
 def circularKernel(size):
     """
@@ -636,15 +691,15 @@ def pDecay(b, pMin, pMax, I, IMax=255.):
     return pMin + b*(1-np.exp(-c*I))
 
 
-def findNPeaks2(gray, kernel, pMin, pMax, n, minThresh=0, margin=1, ignorePAtMax=True, offset=(0,0), maxIter=10000000, validCntCB=None, drawImg=None, drawInvalidPeaks=False):
-    # TODO: is border value = 0 working???
-    peaksDilation = localMax(gray, kernel, borderValue=0) # local max
-    _, peaksDilation = cv.threshold(peaksDilation, minThresh, 255, cv.THRESH_TOZERO)
+def localPeak(gray, kernel, pMin, pMax, n, minThresh=0, margin=1, ignorePAtMax=True, offset=(0,0), maxIter=100, validCntCB=None, drawImg=None, drawInvalidPeaks=False):
+    
+    # Calculate local max and threshold (to zero) the local max with the given minThresh
+    localMaxImage = localMax(gray, kernel, borderValue=0)
+    _, localMaxImage = cv.threshold(localMaxImage, minThresh, 255, cv.THRESH_TOZERO)
 
-    grayMasked = gray.copy()
-    peaksDilationMasked = peaksDilation.copy()
-    maxIntensity = np.inf
-    peakCenters = []
+    localMaxImageMasked = localMaxImage.copy() # A copy of the local max image that will be "painted black" for each peak iteration
+    maxIntensity = np.inf                      # The current max intensity of the masked local max image
+    peakCenters = []                            
     peakContours = []
 
     iterations = 0
@@ -652,8 +707,8 @@ def findNPeaks2(gray, kernel, pMin, pMax, n, minThresh=0, margin=1, ignorePAtMax
         if len(peakCenters) >= n:
             logging.debug("Found {} peaks, breaking".format(n))
             break
-        if np.max(peaksDilationMasked) != maxIntensity:
-            maxIntensity = np.max(peaksDilationMasked)
+        if np.max(localMaxImageMasked) < maxIntensity:
+            maxIntensity = np.max(localMaxImageMasked)
             if maxIntensity == 0:
                 break
             if maxIntensity == 255 and ignorePAtMax:
@@ -661,16 +716,16 @@ def findNPeaks2(gray, kernel, pMin, pMax, n, minThresh=0, margin=1, ignorePAtMax
                 logging.debug("Ignoring p at max")
                 threshold = 254 # TODO: maybe another value is more suitable?
             else:
-                #pTemp = maxIntensity/255.*(pMax-pMin) + pMin
-                #pTemp = pDecay(.1801, pMin, pMax, I=maxIntensity) # with pMax = .98
                 pTemp = pDecay(.175, pMin, pMax, I=maxIntensity)
                 threshold = int(pTemp*maxIntensity - 1)
 
-            ret, threshImg = cv.threshold(grayMasked, threshold, 256, cv.THRESH_BINARY)
+            ret, threshImg = cv.threshold(gray, threshold, 256, cv.THRESH_BINARY)
+        elif np.max(localMaxImageMasked) > maxIntensity:
+            raise Exception("Something went wrong in local peak,")
 
         iterations += 1
         # TODO: this could probably be more efficient, extracting all contours at this intensity level at the same time
-        maxIndx = np.unravel_index(np.argmax(peaksDilationMasked), gray.shape)
+        maxIndx = np.unravel_index(np.argmax(localMaxImageMasked), gray.shape)
         center = maxIndx[1], maxIndx[0]
         cntPeak, cntPeakOffset = findPeakContourAt(threshImg, center, offset=offset)#, mode=cv.RETR_LIST)
 
@@ -678,23 +733,11 @@ def findNPeaks2(gray, kernel, pMin, pMax, n, minThresh=0, margin=1, ignorePAtMax
             logging.error("Something went wrong...")
             break
 
-        # TODO: Check if contour includes the threshold value.
-        # If it doesn't, we can probably break here (noise).
-        """
-        if contourMinPixelIntensity(cntPeak, grayMasked) > threshold+1:
-            print("Not significant enough!!")
-            if drawImg is not None:
-                cen, rad = cv.minEnclosingCircle(cntPeakOffset)
-                cen = int(cen[0]), int(cen[1])
-                cv.circle(drawImg, cen, int(rad), (255,0,255), 2)
-        """
-        # TODO: Check convexity. Non-convex shapes are probably not light sources
-
         # Check if contour is on edge
         cnts = [cntPeak]
         if maxIntensity != 255:
             # we only remove edge contours if they don't have max value
-            cnts = removeContoursOnEdges(peaksDilation, cnts)
+            cnts = removeContoursOnEdges(localMaxImage, cnts)
         if not cnts:
             # Egge
             if drawImg is not None and drawInvalidPeaks:
@@ -719,7 +762,7 @@ def findNPeaks2(gray, kernel, pMin, pMax, n, minThresh=0, margin=1, ignorePAtMax
                 if drawImg is not None:
                     cv.drawContours(drawImg, [cntPeakOffset], 0, (255, 0, 0), -1)
 
-        peaksDilationMasked = cv.drawContours(peaksDilationMasked, [cntPeak], 0, (0, 0, 0), -1)
+        localMaxImageMasked = cv.drawContours(localMaxImageMasked, [cntPeak], 0, (0, 0, 0), -1)
 
         if iterations >= maxIter:
             logging.debug("Peak maxiter reached")
@@ -730,14 +773,15 @@ def findNPeaks2(gray, kernel, pMin, pMax, n, minThresh=0, margin=1, ignorePAtMax
             cv.circle(drawImg, pc, 1, (255,0,255), 1)
             drawInfo(drawImg, (pc[0]+15,pc[1]-15), str(i+1))
 
-    return peaksDilation, peaksDilationMasked, peakCenters, peakContours, iterations
+    return localMaxImage, localMaxImageMasked, peakCenters, peakContours, iterations
 
-def findNPeaks3(gray, kernel, pMin, pMax, n, windowRad, minThresh=0, margin=1, ignorePAtMax=True, offset=(0,0), maxIter=10000000, validCntCB=None, drawImg=None, drawInvalidPeaks=False):
+
+def localPeakWindowed(gray, kernel, pMin, pMax, n, windowRad, minThresh=0, margin=1, ignorePAtMax=True, offset=(0,0), maxIter=10000000, validCntCB=None, drawImg=None, drawInvalidPeaks=False):
     """
 
     """
     if windowRad == 0:
-        return findNPeaks2(gray, kernel, pMin, pMax, n, minThresh, margin, ignorePAtMax, offset, maxIter, validCntCB, drawImg, drawInvalidPeaks)
+        return localPeak(gray, kernel, pMin, pMax, n, minThresh, margin, ignorePAtMax, offset, maxIter, validCntCB, drawImg, drawInvalidPeaks)
 
     peaksDilation = localMax(gray, kernel, borderValue=0) # local max
     _, peaksDilation = cv.threshold(peaksDilation, minThresh, 255, cv.THRESH_TOZERO)
@@ -1719,7 +1763,7 @@ class LightSourceTracker:
         peaksDilationMasked, 
         peakCenters, 
         peakContours,
-        iterations) = findNPeaks2(peakImgPatch, 
+        iterations) = localPeak(peakImgPatch, 
                                   kernel=self.locMaxKernel, 
                                   pMin=self.p,
                                   pMax=self.p, 

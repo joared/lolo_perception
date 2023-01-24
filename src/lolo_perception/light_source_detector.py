@@ -4,41 +4,23 @@ import inspect
 
 import cv2 as cv
 import numpy as np
-import yaml # https://circleci.com/blog/what-is-yaml-a-beginner-s-guide/?utm_source=google&utm_medium=sem&utm_campaign=sem-google-dg--emea-en-dsa-maxConv-auth-nb&utm_term=g_-_c__dsa_&utm_content=&gclid=Cj0KCQiAj4ecBhD3ARIsAM4Q_jHZ-zN1bx3ZjWMeJlzAwDGioniBoU-hO9sJl-ytnKDGYmJOhj4nCzgaAkdVEALw_wcB
 import lolo_perception.py_logging as logging
-
-from matplotlib import pyplot as plt
 from scipy import signal
 
-from lolo_perception.image_processing import LightSource, circularKernel, contourCentroid, contourRatio, drawInfo, findNPeaks2, findNPeaks3, localMax, localMaxSupressed, localMaxDiff, localMaxDiff2
-from lolo_perception.perception_utils import plotHistogram, regionOfInterest
+from lolo_perception.image_processing import LightSource, circularKernel, contourCentroid, contourRatio, drawInfo, localPeak, localPeakWindowed, regionOfInterest
 
-def detectorFromYaml(yamlPath):
-    with open(yamlPath, "r") as file:
-        d = yaml.safe_load(file)
-
-    # The parameters should be under the key "light_source_detector" in the yaml file
-    d = d["light_source_detector"]
-
-    # The name of the detector class
-    className = d["class_name"]
-
-    # Get the class from the name
-    detector = getLightSourceDetectorFromName(className)
-
-    # Remove the class_name key from the dictionary
-    del d["class_name"]
-
-    # Return an instance of the class. The rest of the key-value pairs of d
-    # is assumed to be the correct parameters to the constructor.
-    return detector(**d)
 
 def printLightSourceDetectors():
     for name, obj in inspect.getmembers(sys.modules[__name__]):
         if obj != AbstractLightSourceDetector and issubclass(obj, AbstractLightSourceDetector):
-            print(obj, name)
+            print(name)
+
 
 def getLightSourceDetectorFromName(className):
+    """
+    Returns a class reference to the light source detector with the specified className.
+    The class must be a subclass of AbstractLightSourceDetector, otherwise an exception is thrown.
+    """
     for name, cls in inspect.getmembers(sys.modules[__name__]):
         if name == className:
             if cls != AbstractLightSourceDetector and issubclass(cls, AbstractLightSourceDetector):
@@ -53,6 +35,7 @@ def getLightSourceDetectorFromName(className):
         printLightSourceDetectors()
         raise Exception("'{}' not found.".format(className))
 
+
 class AbstractLightSourceDetector:
     def __init__(self):
         self.img = np.zeros((10, 10)) # store the last processed image
@@ -64,6 +47,7 @@ class AbstractLightSourceDetector:
         candidates = []
         roiCnt = None
         return self.img, candidates, roiCnt
+
 
 class ModifiedHATS(AbstractLightSourceDetector):
     MODE_SIMPLE = "simple"
@@ -103,8 +87,10 @@ class ModifiedHATS(AbstractLightSourceDetector):
         self.img = np.zeros((10, 10)) # store the last processed image
         self.iterations = 0
 
+
     def __repr__(self):
         return "HATS"
+
 
     def _calcCandidates(self, contours):
         candidates = []
@@ -117,15 +103,15 @@ class ModifiedHATS(AbstractLightSourceDetector):
 
         return candidates, removedCandidates
 
+
     def _sortLightSources(self, candidates, nCandidates):
         candidates.sort(key=lambda p: p.area, reverse=True)
         candidates = candidates[:nCandidates]
         
         return candidates
 
-    def detect(self, gray, nFeatures, additionalCandidates=0, estDSPose=None, roiMargin=None, drawImg=None):
 
-        grayFull = gray.copy()
+    def detect(self, gray, nFeatures, additionalCandidates=0, estDSPose=None, roiMargin=None, drawImg=None):
 
         roiCnt = None
         offset = (0, 0)
@@ -142,15 +128,8 @@ class ModifiedHATS(AbstractLightSourceDetector):
 
             _, gray = cv.threshold(gray, minIntensity, 256, cv.THRESH_TOZERO)
 
-        grayROI = gray.copy()
         img = gray.copy()
         img = cv.GaussianBlur(img, (self.blurKernelSize,self.blurKernelSize), self.sigma)
-
-        # TODO: OPENING onland, CLOSING underwater
-        if self.morphKernel is not None:
-            pass
-            #img = cv.morphologyEx(img, cv.MORPH_OPEN, self.morphKernel, iterations=1)
-            #img = cv.morphologyEx(img, cv.MORPH_CLOSE, self.morphKernel, iterations=1)
 
         hist = cv.calcHist([img], [0], None, [256], [0,256])
         hist = hist.ravel()
@@ -187,9 +166,6 @@ class ModifiedHATS(AbstractLightSourceDetector):
         i = 0
         while True:
             i += 1
-
-            #if len(candidates) >= nFeatures:
-            #    break
 
             if len(histPeaks) > 0:
                 self.threshold = histPeaks.pop()-1
@@ -239,42 +215,32 @@ class ModifiedHATS(AbstractLightSourceDetector):
                 drawInfo(drawImg, (cx+25,cy-15), str(r), color=(0,0,255), fontScale=0.5)
                 cv.drawContours(drawImg, [cnt+offset], 0, (0,0,255), -1)
 
-        self.img, candidates = separateOverExposedCandidates(candidates, 
-                                                             gray.shape, 
-                                                             offset=offset, 
-                                                             drawImg=drawImg)
+        self.img, candidates = separateOverExposedCandidatesSimple(candidates, 
+                                                                   gray.shape, 
+                                                                   offset=offset, 
+                                                                   drawImg=drawImg)
 
         candidates = candidates[:nFeatures+additionalCandidates]
 
-        ########### plot histogram peaks ##############
-        if self.showHistogram:
-            plt.cla()
-            N = 150
-            grayROI = cv.GaussianBlur(grayROI, (self.blurKernelSize,self.blurKernelSize), self.sigma)
-            grayFull = cv.GaussianBlur(grayFull, (self.blurKernelSize,self.blurKernelSize), self.sigma)
-            plotHistogram(grayFull, N=N, highlightPeak=self.threshold, facecolor="b")
-            plotHistogram(grayROI, N=N, highlightPeak=self.threshold, facecolor="r", limitAxes=False)
-            plt.pause(0.0001)
-            
-        ########### \plot histogram peaks ##############
 
         return self.img, candidates, roiCnt
 
 
 class LocalPeak(AbstractLightSourceDetector):
-    def __init__(self, kernelSize, pMin, pMax, maxIntensityChange, minArea, minCircleExtent, blurKernelSize, windowRad, ignorePAtMax, maxIter, filterAfter):
+    def __init__(self, kernelSize, pMin, pMax, maxIntensityChange, minArea, minCircleExtent, blurKernelSize, ignorePAtMax, maxIter, filterAfter):
         """
-        try cv.THRESH_OTSU?
+        kernelSize - size of the local max kernel
+        pMin - minimum decimal fraction used to 
+        pMax -
         """
         self.kernelSize = kernelSize
-        self.kernel = np.ones((self.kernelSize,self.kernelSize)) # circularKernel(self.kernelSize) # Insanely much faster with square!
+        self.kernel = np.ones((self.kernelSize,self.kernelSize)) 
         self.pMin = pMin
         self.pMax = pMax
         self.img = np.zeros((10, 10), dtype=np.uint8) # store the last processed image
         self.maxIntensityChange = maxIntensityChange
 
-        self.minAreaDefault = 0# TODO remove
-        self.minArea = 0
+        self.minArea = minArea
         self.minCircleExtent = minCircleExtent
         self.filterAfter = filterAfter
 
@@ -287,7 +253,6 @@ class LocalPeak(AbstractLightSourceDetector):
 
         self.ignorePAtMax = ignorePAtMax
 
-        self.windowRad = windowRad
         self.maxIter = maxIter
         self.iterations = 0
 
@@ -336,24 +301,23 @@ class LocalPeak(AbstractLightSourceDetector):
         if self.blurKernelSize > 0:
             gray = cv.GaussianBlur(gray, (self.blurKernelSize,self.blurKernelSize), self.sigma)
 
-        (peakDilationImg, 
-        peaksDilationMasked, 
+        (localMaxImg, 
+        localMaxImgMasked, 
         peakCenters, 
         peakContours,
-        iterations) = findNPeaks3(gray, 
-                                  kernel=self.kernel, 
-                                  pMin=self.pMin,
-                                  pMax=self.pMax, 
-                                  n=nFeatures+additionalCandidates,
-                                  windowRad=self.windowRad,
-                                  minThresh=minIntensity,
-                                  margin=peakMargin,
-                                  ignorePAtMax=self.ignorePAtMax,
-                                  offset=offset,
-                                  maxIter=self.maxIter,
-                                  validCntCB=self.validContour if not self.filterAfter else None,
-                                  drawImg=drawImg,
-                                  drawInvalidPeaks=True)
+        iterations) = localPeak(gray, 
+                                kernel=self.kernel, 
+                                pMin=self.pMin,
+                                pMax=self.pMax, 
+                                n=nFeatures+additionalCandidates,
+                                minThresh=minIntensity,
+                                margin=peakMargin,
+                                ignorePAtMax=self.ignorePAtMax,
+                                offset=offset,
+                                maxIter=self.maxIter,
+                                validCntCB=self.validContour if not self.filterAfter else None,
+                                drawImg=drawImg,
+                                drawInvalidPeaks=True)
 
         candidates = [LightSource(cnt, gray[pc[1]-offset[1], pc[0]-offset[0]]) for pc, cnt in zip(peakCenters, peakContours)]
 
@@ -383,20 +347,23 @@ class LocalPeak(AbstractLightSourceDetector):
         self.iterations = iterations
         logging.debug("Local max iterations: {}".format(self.iterations))
 
-        # self.img, candidates = separateOverExposedCandidates(candidates, 
-        #                                                      gray.shape, 
-        #                                                      offset=offset, 
-        #                                                      drawImg=drawImg)
+        # If light sources are moderately overexposed and causes some overlapping, use this
+        self.img, candidates = separateOverExposedCandidatesSimple(candidates, 
+                                                                   gray.shape, 
+                                                                   offset=offset, 
+                                                                   drawImg=drawImg)
 
-        self.img, candidates = separateOverExposedCandidates2(candidates, 
-                                                             gray.shape, 
-                                                             self.kernel,
-                                                             offset=offset, 
-                                                             drawImg=drawImg)
+        # If light sources tend to be extremely overexposed and causes large overlaps, use this
+        # self.img, candidates = separateOverExposedCandidatesLocalPeak(candidates, 
+        #                                                               gray.shape, 
+        #                                                               self.kernel,
+        #                                                               offset=offset, 
+        #                                                               drawImg=drawImg)
 
         candidates = candidates[:nFeatures+additionalCandidates]
 
         return drawImg, candidates, roiCnt
+    
 
 class ModifiedHATSLocalPeak(AbstractLightSourceDetector):
     def __init__(self, toHATSScale, toPeakScale, modifiedHATSParams, localPeakParams):
@@ -443,252 +410,10 @@ class ModifiedHATSLocalPeak(AbstractLightSourceDetector):
 
         self.img = self.currentDetector.img
 
-        # # TODO: Distance transform for overexposed light sources
-        # offset = (0, 0)
-        # if roiCnt is not None:
-        #     offset = tuple(roiCnt[0])
-        # distTransCandidates = []
-        # for ls in candidates:
-        #     # First draw each contour
-        #     binaryImg = np.zeros(gray.shape, dtype=np.uint8)
-        #     cv.drawContours(binaryImg, [ls.cnt], 0, 255, -1, offset=(-offset[0], -offset[1]))
-            
-        #     # TODO: for efficiency
-        #     #x,y,w,h = cv.boundingRect(ls.cnt)
-        #     #binaryImg = binaryImg[y:y+h, x:x+w] 
-            
-        #     # https://docs.opencv.org/3.4/d2/dbd/tutorial_distance_transform.html
-        #     dist = cv.distanceTransform(binaryImg, cv.DIST_L2, 3)
-        #     # Normalize the distance image for range = {0.0, 1.0}
-        #     # so we can visualize and threshold it
-        #     cv.normalize(dist, dist, 0, 255.0, cv.NORM_MINMAX)
-        #     dist = dist.astype(np.uint8)
-            
-        #     # TODO: how does otsu perform on the dist image?
-        #     # Edit: not that well...
-        #     _, threshImg = cv.threshold(dist, 150, 255, cv.THRESH_BINARY)
-        #     #_, threshImg = cv.threshold(dist, 0, 255, cv.THRESH_OTSU)
-            
-        #     _, contours, hier = cv.findContours(threshImg, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE, offset=offset)
-        #     for cnt in contours:
-        #         distTransCandidates.append(LightSource(cnt, ls.intensity))
-
-        # candidates = distTransCandidates[:nFeatures+additionalCandidates]
-
-        # binaryImg = np.zeros(gray.shape, dtype=np.uint8)
-        # if drawImg is not None:
-        #     for ls in candidates:
-        #         cv.drawContours(drawImg, [ls.cnt], 0, (255,0,255), -1)
-        #         cv.circle(drawImg, ls.center, 3, (0,255,255), -1)
-        #         #cv.drawContours(binaryImg, [ls.cnt], 0, 255, -1, offset=(-offset[0], -offset[1]))
-
-        # #self.img = binaryImg
-
         return drawImg, candidates, roiCnt
 
 
-class LogPyramid(AbstractLightSourceDetector):
-    def __init__(self):
-        pass
-
-    def __repr__(self):
-        return "Pyramid"
-
-    def detect(self,
-               gray, 
-               nFeatures,
-               additionalCandidates, 
-               estDSPose=None,
-               roiMargin=None, 
-               drawImg=None):
-                
-        roiCnt = None
-        offset = (0, 0)
-        if estDSPose:
-            featurePointsGuess = estDSPose.reProject()
-            roiMargin += max([ls.radius for ls in estDSPose.associatedLightSources])
-            (x, y, w, h), roiCnt = regionOfInterest(featurePointsGuess, wMargin=roiMargin, hMargin=roiMargin, shape=gray.shape)
-
-            offset = (x, y)
-            gray = gray[y:y+h, x:x+w]
-
-            #minIntensity = min([ls.intensity for ls in estDSPose.associatedLightSources])
-            #minIntensity = self.maxIntensityChange*minIntensity
-
-        blurred = cv.GaussianBlur(gray, (11,11), 0)
-        #cv.imshow("thresholded", thresh)
-
-        # Laplacian pyramid
-        blobRadius = 3
-        sigma = (blobRadius-1.0)/3.0
-        ksize = blobRadius*2-1#int(round(sigma*3))
-        if ksize % 2 == 0:
-            ksize += 1
-
-        blurred = cv.GaussianBlur(gray, (ksize,ksize), sigma) # ksize
-
-        morphKernel = np.ones((3,3))
-        pyramid = []
-        pyrImg = blurred
-        for i in range(4):
-            logging.info("first")
-            dst = cv.Laplacian(pyrImg, ddepth=cv.CV_64F, ksize=5)
-            dst = cv.convertScaleAbs(dst, alpha=255./dst.max())
-            dst = dst.astype(np.uint8)
-
-            pyramid.append(cv.resize(dst, (blurred.shape[1], blurred.shape[0])))
-
-            #pyrImg = cv.morphologyEx(pyrImg, cv.MORPH_ERODE, morphKernel)
-            pyrImg = cv.pyrDown(pyrImg)
-            
-
-        #for i, img in enumerate(pyramid):
-        #    cv.imshow("Pyr {}".format(i), img)
-
-        # Weighted pyramid
-        weightedPyrImg = None
-        for pyrImg in pyramid:
-            if weightedPyrImg is None:
-                weightedPyrImg = pyrImg.astype(np.float32)
-            else:
-                weightedPyrImg += pyrImg.astype(np.float32) + blurred.astype(np.float32)
-                #weightedPyrImg *= pyrImg.astype(np.float32) # multiply?
-                
-        weightedPyrImg *= pyramid[-1].astype(np.float32)
-        
-        weightedPyrImg = weightedPyrImg*255./weightedPyrImg.max()
-        weightedPyrImg = weightedPyrImg.astype(np.uint8)
-        #_,weightedPyrImg = cv.threshold(weightedPyrImg,0,255,cv.THRESH_BINARY+cv.THRESH_OTSU)
-        #cv.imshow("Weighted pyramid", weightedPyrImg)
-
-        
-        otsuThreshold, logThresh = cv.threshold(weightedPyrImg, 0, 255, cv.THRESH_BINARY+cv.THRESH_OTSU)
-
-        _, contours, hier = cv.findContours(logThresh, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-
-        cv.drawContours(drawImg, contours, -1, (255, 0, 0), -1)
-
-        candidates = [LightSource(cnt+offset, otsuThreshold) for cnt in contours]
-        candidates = candidates[:11]
-        #cv.imshow("LoG", logImg)
-        #cv.imshow("LoG+Otsu", logThresh)
-        self.img = weightedPyrImg
-        return drawImg, candidates, roiCnt
-
-class LogDiff(AbstractLightSourceDetector):
-    def __init__(self):
-        self.localMaxKernel = np.ones((11,11))
-        self.localMinKernel = np.ones((50,50))
-        self.p = 0.975
-
-        self.img = np.zeros((50,50), dtype=np.uint8)
-
-    def __repr__(self):
-        return "Pyramid"
-
-    def detect(self,
-               gray, 
-               nFeatures,
-               additionalCandidates, 
-               estDSPose=None,
-               roiMargin=None, 
-               drawImg=None):
-
-        localMaxImg = localMaxDiff(gray, self.localMaxKernel, self.p)
-        localMaxImg = localMaxSupressed(gray, self.localMaxKernel, self.p)
-        #localMaxImg = localMaxDiff(gray, self.localMaxKernel, self.p)
-        #localMaxImg = localMax(gray, self.localMaxKernel, borderValue=0)
-
-        _, contours, _ = cv.findContours(localMaxImg, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-
-        if drawImg is not None:
-            cv.drawContours(drawImg, contours, -1, (255,0,0), -1)
-
-        self.img = localMaxImg
-
-        candidates = [LightSource(cnt, 255) for cnt in contours]
-        candidates = candidates[:nFeatures+additionalCandidates]
-
-        return drawImg, candidates, None
-
-class SimpleBlobDetector(AbstractLightSourceDetector):
-    def __init__(self):
-        self.init(255)
-
-    def init(self, threshold):
-        params = cv.SimpleBlobDetector_Params()
-        
-        # Change thresholds
-        params.minThreshold = 0
-        params.maxThreshold = threshold
-        params.thresholdStep = 1
-        # Filter by Area.
-        #params.filterByArea = True
-        #params.minArea = 1500
-        
-        # Filter by Circularity
-        #params.filterByCircularity = True
-        #params.minCircularity = 0.01
-        
-        # Filter by Convexity
-        #params.filterByConvexity = True
-        #params.minConvexity = 0.87
-        
-        # Filter by Inertia
-        #params.filterByInertia = True
-        #params.minInertiaRatio = 0.01
- 
-        # Create a detector with the parameters
-        ver = (cv.__version__).split('.')
-        if int(ver[0]) < 3 :
-            self.detector = cv.SimpleBlobDetector(params)
-        else:
-            self.detector = cv.SimpleBlobDetector_create(params)
-
-        self.img = np.zeros((50,50), dtype=np.uint8)
-
-    def __repr__(self):
-        return "Simple blob detector"
-
-    def detect(self,
-               gray, 
-               nFeatures,
-               additionalCandidates, 
-               estDSPose=None,
-               roiMargin=None, 
-               drawImg=None):
-
-        roiCnt = None
-        offset = (0, 0)
-        if estDSPose:
-            
-            featurePointsGuess = estDSPose.reProject()
-            roiMargin += max([ls.radius for ls in estDSPose.associatedLightSources])
-            (x, y, w, h), roiCnt = regionOfInterest(featurePointsGuess, wMargin=roiMargin, hMargin=roiMargin, shape=gray.shape)
-
-            offset = (x, y)
-            gray = gray[y:y+h, x:x+w]
-
-            minIntensity = min([ls.intensity for ls in estDSPose.associatedLightSources])
-            self.init(minIntensity*0.7)
-
-        # Detect blobs.
-        keypoints = self.detector.detect(cv.bitwise_not(gray))
-
-        centers = [(int(k.pt[0]+offset[0]), int(k.pt[1]+offset[1])) for k in keypoints]
-
-        candidates = [LightSource(np.array([[center]]), gray[center[1]-offset[1], center[0]-offset[0]]) for center in centers]
-        candidates = candidates[:nFeatures+additionalCandidates]
-        # Draw detected blobs as red circles.
-        # cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS ensures the size of the circle corresponds to the size of blob
-        self.img = cv.drawKeypoints(cv.bitwise_not(gray), keypoints, np.array([]), (0,0,255), cv.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-    
-        # Show keypoints
-        #cv.imshow("Keypoints", im_with_keypoints)
-
-        return drawImg, candidates, roiCnt
-
-def separateOverExposedCandidates(candidates, imgShape, offset=(0,0), drawImg=None):
+def separateOverExposedCandidatesSimple(candidates, imgShape, offset=(0,0), drawImg=None):
     # Distance transform for overexposed light sources
     lightSources = []
     overlappingLightSources = []
@@ -736,7 +461,7 @@ def separateOverExposedCandidates(candidates, imgShape, offset=(0,0), drawImg=No
     return binaryImg, candidates
 
 
-def separateOverExposedCandidates2(candidates, imgShape, kernel, offset=(0,0), drawImg=None):
+def separateOverExposedCandidatesLocalPeak(candidates, imgShape, kernel, offset=(0,0), drawImg=None):
     # Distance transform for overexposed light sources
     lightSources = []
     overlappingLightSources = []
@@ -756,7 +481,7 @@ def separateOverExposedCandidates2(candidates, imgShape, kernel, offset=(0,0), d
         cv.normalize(dist, dist, 0, 255.0, cv.NORM_MINMAX)
         dist = dist.astype(np.uint8)
         
-        (_, _, _, contours, _) = findNPeaks3(dist, 
+        (_, _, _, contours, _) = localPeakWindowed(dist, 
                                              kernel=kernel, 
                                              pMin=0.9,
                                              pMax=0.9, 

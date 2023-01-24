@@ -4,6 +4,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 import matplotlib.pyplot as plt
 from scipy import signal
+from lolo_perception.pose_estimation import projectPoints, reprojectionError
 
 def plotPoseImageInfo(poseImg,
                       titleText,
@@ -18,14 +19,6 @@ def plotPoseImageInfo(poseImg,
                       roiCntUpdated=None,
                       progress=0,
                       fixedAxis=False):
-
-    # This takes a lot of time!!! Dont do it
-    # if roiCntUpdated is not None:
-    #     poseImgTmp = poseImg.copy()
-    #     poseImg = poseImg*(1 - progress*0.5)
-    #     poseImg = poseImg.astype(np.uint8)
-
-    #     poseImg[roiCntUpdated[0][1]:roiCntUpdated[3][1], roiCntUpdated[0][0]:roiCntUpdated[1][0], :] = poseImgTmp[roiCntUpdated[0][1]:roiCntUpdated[3][1], roiCntUpdated[0][0]:roiCntUpdated[1][0], :]
 
     cv.putText(poseImg, 
                titleText, 
@@ -138,14 +131,6 @@ def plotPoseImageInfo(poseImg,
 
 def plotPoseImageInfoSimple(poseImg, dsPose, poseAquired, roiCnt, progress):
     if dsPose:
-        # This takes a lot of time!!! Dont do it
-        # if roiCnt is not None:
-        #     poseImgTmp = poseImg.copy()
-        #     poseImg = poseImg*(1 - progress*0.5)
-        #     poseImg = poseImg.astype(np.uint8)
-
-        #     poseImg[roiCnt[0][1]:roiCnt[3][1], roiCnt[0][0]:roiCnt[1][0], :] = poseImgTmp[roiCnt[0][1]:roiCnt[3][1], roiCnt[0][0]:roiCnt[1][0], :]
-
         if poseAquired:
             plotAxis(poseImg, 
                     dsPose.translationVector, 
@@ -206,12 +191,7 @@ def drawProgressROI(poseImg, progress, roiCnt, roiColor, clockwise=True):
         if progressTemp < 0:
             cv.circle(poseImg, p2, 15, roiColor, -1)
             return
-
-def progressToIndex(progress, w_norm, h_norm):
-    if progress < w_norm: return 0
-    elif progress < w_norm + h_norm: return 1
-    elif progress < 2*w_norm + h_norm: return 2
-    else: return 3
+        
 
 def plotErrorEllipses(img, dsPose, color=(0,0,255), displayReferenceSphere=False):
     for center, pixelCov in zip(dsPose.reProject(), dsPose.pixelCovariances):
@@ -358,6 +338,7 @@ def plotPosePointsWithReprojection(img, translationVector, rotationVector, camer
         projX, projY = int( round(projP[0]) ), int( round(projP[1]) )
         cv.line(img, (imgX, imgY), (projX, projY), color=color)
 
+
 def plotPoints(img, points, color, radius=1):
     for p in points:
         x = int( round(p[0]) )
@@ -367,14 +348,6 @@ def plotPoints(img, points, color, radius=1):
         else:
             cv.circle(img, (x,y), radius, color, -1)
 
-def projectPoints(translationVector, rotationVector, camera, objPoints):
-    projPoints, _ = cv.projectPoints(objPoints, 
-                                        rotationVector, 
-                                        translationVector, 
-                                        camera.cameraMatrix, 
-                                        camera.distCoeffs)
-    projPoints = np.array([p[0] for p in projPoints])
-    return projPoints
 
 def plotPoseInfo(img, translationVector, rotationVector, yawColor=(0,255,0), pitchColor=(0,255,0), rollColor=(0,255,0)):
     distance = np.linalg.norm(translationVector)
@@ -449,19 +422,6 @@ def plotCrosshair(img, camera, color=(0, 0, 255)):
     cv.line(img, (cx, cy - size), (cx, cy + size), color, 2)
 
 
-def reprojectionError(translationVector, rotationVector, camera, objPoints, imagePoints):
-    """
-
-    https://github.com/strawlab/image_pipeline/blob/master/camera_calibration/nodes/cameracheck.py
-    """
-    projPoints = projectPoints(translationVector, rotationVector, camera, objPoints)
-
-    reprojErrs = imagePoints - projPoints
-    rms = np.sqrt(np.sum(reprojErrs ** 2)/np.product(reprojErrs.shape))
-
-    return reprojErrs, rms
-
-
 def plotHistogram(img, N, showPeaks=False, showValleys=False, highLightFirstPeakValley=False, highlightPeak=None, facecolor=None, limitAxes=True, alpha=.4):
     hist = cv.calcHist([img], [0], None, [256], [0,256])
     hist = hist.ravel()
@@ -502,61 +462,6 @@ def plotHistogram(img, N, showPeaks=False, showValleys=False, highLightFirstPeak
     plt.ylabel("Frequency")
     plt.xlabel("Intensity")
 
-def regionOfInterest(points, wMargin, hMargin, shape=None):
-    topMost = [None, np.inf]
-    rightMost = [-np.inf]
-    bottomMost = [None, -np.inf]
-    leftMost = [np.inf]
-    for p in points:
-        if p[1] < topMost[1]:
-            topMost = list(p)
-
-        if p[0] > rightMost[0]:
-            rightMost = list(p)
-
-        if p[1] > bottomMost[1]:
-            bottomMost = list(p)
-
-        if p[0] < leftMost[0]:
-            leftMost = list(p)
-    
-    topMost[1] -= hMargin
-    rightMost[0] += wMargin
-    bottomMost[1] += hMargin
-    leftMost[0] -= wMargin
-    cnt = np.array([topMost, rightMost, bottomMost, leftMost], dtype=np.int32)
-    x, y, w, h = cv.boundingRect(cnt)
-
-    if shape is not None:
-        if x < 0:
-            w += x
-            x = 0
-        else:
-            x = min(shape[1]-1, x)
-        if y < 0:
-            h += y
-            y = 0
-        else:
-            y = min(shape[0]-1, y)
-
-    roiCnt = np.array([[x, y], [x+w, y], [x+w, y+h], [x, y+h]], dtype=np.int32)
-
-    return (x, y, w, h), roiCnt
-
-def imageROI(img, imgPoints, margin):
-    (x, y, w, h), roiCnt = regionOfInterest([[u,v] for u,v in imgPoints], margin, margin)
-    x = max(0, x)
-    x = min(img.shape[1]-1, x)
-    y = max(0, y)
-    y = min(img.shape[0]-1, y)
-    offset = (x,y)
-    #roiMask = np.zeros(imgRect.shape[:2], dtype=np.uint8)
-    #cv.drawContours(roiMask, [roiCnt], 0, (255,255,255), -1)
-    #imgRectROI = cv.bitwise_and(imgRect, imgRect, mask=roiMask)
-
-    imgROI = img[y:y+h, x:x+w]
-
-    return imgROI, roiCnt, (x, y, w, h)
 
 def plotPiChart(img, center, size=20, **kwargs):
 
@@ -616,114 +521,6 @@ def plotFPS(img, fps, fpsVirtual=None):
 
     return img
 
-def scaleImage(img, scalePercent):
-    """
-    Scales the image (up or down) base on scalePercentage.
-    Preserves aspect ratio.
-    """
-    return cv.resize(img, (int(img.shape[1]*scalePercent) , int(img.shape[0]*scalePercent)))
-
-def scaleImageToWidth(img, desiredWidth):
-    return scaleImage(img, float(desiredWidth)/img.shape[1])
-
-
-class PoseAndImageUncertaintyEstimator:
-    """
-    Utility class to use when evaluating uncertainty of pose and image points.
-    Make sure all the samples are correct (watch out for outliers)
-    """
-    def __init__(self, nImagePoints, nSamples=100):
-        self.associatedImagePoints = [[] for _ in range(nImagePoints)]
-        self.poseVecs = [] # list of pose vectors [tx, ty, tz, rx, ry, rz]
-        self.poseVecsEuler = [] # list of pose vectors [tx, ty, tz, ax, ay, az] (a_ in degrees)
-        self.camPoseVecs = []
-        self.camPoseVecsEuler = []
-        self.nSamples = nSamples
-
-    def add(self, 
-            translationVec, 
-            rotationVec,
-            camTranslationVec,
-            camRotationVec, 
-            assImgPoints):
-
-        self.poseVecs.insert(0, list(translationVec) + list(rotationVec))
-        self.poseVecs = self.poseVecs[:self.nSamples]
-
-        self.camPoseVecs.insert(0, list(camTranslationVec) + list(camRotationVec))
-        self.camPoseVecs = self.camPoseVecs[:self.nSamples]
-
-        self.poseVecsEuler.insert(0, list(translationVec) + list(R.from_rotvec(rotationVec).as_euler("YXZ", degrees=True)))
-        self.poseVecsEuler = self.poseVecsEuler[:self.nSamples]
-        self.camPoseVecsEuler.insert(0, list(camTranslationVec) + list(R.from_rotvec(camRotationVec).as_euler("YXZ", degrees=True)))
-        self.camPoseVecsEuler = self.camPoseVecsEuler[:self.nSamples]
-
-        for i, p in enumerate(assImgPoints):
-            self.associatedImagePoints[i].insert(0, p)
-            self.associatedImagePoints[i] = self.associatedImagePoints[i][:self.nSamples]
-
-    def calcCovariance(self):
-        if len(self.poseVecs) > 1:
-            poseCov = np.cov(self.poseVecs, rowvar=False)
-            camPoseCov = np.cov(self.camPoseVecs, rowvar=False)
-        else:
-            poseCov = np.zeros((6,6))
-            camPoseCov = np.zeros((6,6))
-
-        imageCovs = []
-        for points in self.associatedImagePoints:
-            imageCovs.append(np.cov(points, rowvar=False))
-
-        return poseCov, camPoseCov, imageCovs
-
-    def calcCovarianceEuler(self):
-        if len(self.poseVecs) > 1:
-            poseCov = np.cov(self.poseVecsEuler, rowvar=False)
-            camPoseCov = np.cov(self.camPoseVecsEuler, rowvar=False)
-        else:
-            poseCov = np.zeros((6,6))
-            camPoseCov = np.zeros((6,6))
-
-        return poseCov, camPoseCov
-
-    def calcAverage(self):
-        # This only works for small differences in rotation and 
-        # when rotations are not near +-pi
-        poseAvg = np.mean(self.poseVecs, axis=0)
-        camPoseAvg = np.mean(self.camPoseVecs, axis=0)
-        imageAvgs = []
-        for points in self.associatedImagePoints:
-            imageAvgs.append(np.mean(points, axis=0))
-
-        return poseAvg, camPoseAvg, imageAvgs
-
-class ImagePointsAverageAndCovarianceEstimator:
-    """
-    Utility class to use when evaluating uncertainty of pose and image points.
-    Make sure all the samples are correct (watch out for outliers)
-    """
-    def __init__(self, nImagePoints, nSamples=100):
-        self.associatedImagePoints = [[] for _ in range(nImagePoints)]
-        self.nSamples = nSamples
-
-    def add(self, assImgPoints):
-        for i, p in enumerate(assImgPoints):
-            self.associatedImagePoints[i].insert(0, p)
-            self.associatedImagePoints[i] = self.associatedImagePoints[i][:self.nSamples]
-
-    def calcCovariance(self):
-        imageCovs = []
-        for points in self.associatedImagePoints:
-            imageCovs.append(np.cov(points, rowvar=False))
-
-        return imageCovs
-
-    def calcAverage(self):
-        imageAvgs = []
-        for points in self.associatedImagePoints:
-            imageAvgs.append(np.mean(points, axis=0))
-
-        return imageAvgs
 
 if __name__ == "__main__":
     from pose_estimation import DSPose

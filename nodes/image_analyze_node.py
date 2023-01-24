@@ -3,34 +3,24 @@ import sys
 import os
 import time
 import cv2 as cv
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 import rospy
-import rospkg
 import rosbag
-import yaml
 from cv_bridge import CvBridge
 from sensor_msgs.msg import Image, CompressedImage, CameraInfo
 from geometry_msgs.msg import PoseArray
 from lolo_perception.msg import FeatureModel as FeatureModelMsg
-
 
 import lolo_perception.definitions as loloDefs
 from lolo_perception.definitions import makeAbsolute
 from lolo_perception.utils import Timer
 from lolo_perception.camera_model import Camera
 from lolo_perception.feature_model import FeatureModel
-from lolo_perception.perception_ros_utils import readCameraYaml, yamlToFeatureModelMsg, msgToImagePoints
-from lolo_perception.image_processing import contourRatio, LightSourceTrackInitializer, LightSourceTracker, RCFS, RCF, findPeakContourAt, circularKernel, localMax, localMaxSupressed, localMaxSupressed2, localMaxDiff, localMaxDiff2, removeContoursOnEdges
-from lolo_perception.perception_utils import plotHistogram, imageROI, regionOfInterest, plotFPS, scaleImageToWidth
+from lolo_perception.ros_utils import readCameraYaml, yamlToFeatureModelMsg, msgToImagePoints
+from lolo_perception.plotting_utils import plotFPS
+from lolo_perception.image_processing import scaleImageToWidth
 from lolo_perception.image_dataset import ImageDataset
-from lolo_perception.perception import Perception
-
-from lolo_perception.pose_estimation import calcPoseCovarianceFixedAxis
-
-# for _analyzeImage
-from lolo_perception.image_processing import findNPeaks2, peakThresholdMin, contourCentroid, findAllPeaks, findPeaksDilation, peakThreshold, circularKernel, removeNeighbouringContours, removeNeighbouringContoursFromImg, maxShift, meanShift, drawInfo, medianContourAreaFromImg, findMaxPeaks, findMaxPeak
+from lolo_perception.tracker import Tracker
 
 class Trackbar:
     def __init__(self, name, wName, value, maxvalue, minValue=0):
@@ -208,185 +198,6 @@ class ImageLabeler:
         return key, self.errCircles
 
 
-def testFeatureExtractor(featExtClass, datasetPath, labelFile):
-    
-    for imgPath in labeledImgs:
-        img = cv.imread(imgPath)
-        print("Reading {}".format(imgPath))
-        if img is None:
-            print("'{}' not found, removing from labeled data.".format(imgPath))
-            labeledImgs[imgPath] = []
-            continue
-        gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
-
-        labels = labeledImgs[imgPath]
-        nFeatures = len(labels)
-
-        #featExt = featExtClass(nFeatures, camera=None, p=0.1, useKernel=False)
-        featExt = featExtClass(featureModel=5, camera=None, p=0.01, erosionKernelSize=5, maxIter=4, useKernel=False)
-        
-        _, points = featExt(gray, img.copy())
-        _, points = featExt(gray, img)
-        points = points[:nFeatures]
-
-        for i, errCircle in enumerate(labels):
-            drawErrorCircle(img, errCircle, i, color=(0, 255, 0))
-
-        classifications = {c: [] for c in labels}
-        classifiedPoints = []
-        for errCircle in labels:
-            pointsInCircle = []
-            for p in points:
-                # check if inside errCircle    
-                x1, y1, r = errCircle
-                x2, y2 = p
-                d = np.sqrt(pow(x2-x1, 2) + pow(y2-y1, 2))
-                if d < r:
-                    pointsInCircle.append(p)
-                    classifiedPoints.append(p)
-            classifications[errCircle] = pointsInCircle
-            if len(pointsInCircle) == 1:
-                cv.circle(img, pointsInCircle[0], 1, (255, 0, 0), 2)
-            elif len(pointsInCircle) > 1:
-                for p in pointsInCircle:
-                    cv.circle(img, p, 1, (0, 140, 255), 2)
-
-        correctlyClassified = True
-        for p in points:
-            if p not in classifiedPoints:
-                cv.circle(img, p, 1, (0, 0, 255), 2)
-                correctlyClassified = False
-
-        if correctlyClassified:
-            font = cv.FONT_HERSHEY_SIMPLEX
-            fontScale = 1
-            thickness = 2
-            infoText = "{}/{}".format(len(classifiedPoints), len(points))
-            cv.putText(img, infoText, (30, 30), font, fontScale, (0, 255, 0), thickness, cv.LINE_AA)
-            cv.imshow("bin", featExt.pHold.img)
-            cv.imshow("bin open", featExt.adaOpen.img)
-            cv.imshow("image", img)
-            cv.waitKey(0)
-
-class LightSourceTrackAnalyzer:
-    def __init__(self):
-        cv.imshow("Light source tracking", np.zeros((10,10)))
-        cv.setMouseCallback("Light source tracking", self._click)
-        self.lsTracker = LightSourceTrackInitializer(radius=50, maxPatchRadius=100, minPatchRadius=55, maxMovement=1000)
-        self._newTrackerCenters = []
-        self._gray = None
-
-    def _click(self, event, x, y, flags, param):
-        if event == cv.EVENT_LBUTTONDOWN:
-            for tr in self.lsTracker.trackers:
-                if np.linalg.norm([x-tr.center[0], y-tr.center[1]]) < tr.patchRadius:
-                    self.lsTracker.trackers.remove(tr)
-                    break
-            else:
-                self._newTrackerCenters.append((x,y))
-                #self.lsTracker.trackers.append(LightSourceTracker((x,y), radius=10, maxPatchRadius=50, minPatchRadius=7))
-
-    def update(self, img):
-        drawImg = img.copy()
-        self._gray = cv.cvtColor(drawImg, cv.COLOR_BGR2GRAY)
-
-        self.lsTracker.update(self._gray, 
-                              newTrackerCenters=list(self._newTrackerCenters), 
-                              drawImg=drawImg)
-
-        self._newTrackerCenters = []
-        cv.imshow("Light source tracking", drawImg)
-
-
-class RCFAnalyzer:
-    def __init__(self):
-        self.coordinates = []
-        self.drawImg = None
-
-    def _click(self, event, x, y, flags, param):
-        if event == cv.EVENT_LBUTTONDOWN:
-            self.coordinates.append((x,y))
-            self._draw()
-
-    def _draw(self):
-        if self.drawImg is not None:
-            drawImg = self.drawImg.copy()
-            gray = cv.cvtColor(drawImg, cv.COLOR_BGR2GRAY)
-            #plt.clf()
-            for center in self.coordinates:
-                r, rcfs = RCFS(center, rStart=1, gray=gray, drawImg=drawImg)
-                #plt.plot(rcfs)
-
-            #plt.pause(0.001)
-            cv.imshow("RCF analyzer", drawImg)
-
-    def update(self, img):
-        self.coordinates = []
-        self.drawImg = img.copy()
-        cv.imshow("RCF analyzer", self.drawImg)
-
-        if not self._initialized:
-            cv.setMouseCallback("RCF analyzer", self._click)
-            self._initialized = True
-
-class PeakAnalyzer:
-    def __init__(self):
-        self.coordinates = []
-        self.windowRadius = 20
-        self.currentPos = (0,0)
-        self.drawImg = None
-        self.p = 0.975
-
-
-        #cv.imshow("Peak analyzer p={}".format(self.p), np.zeros((10,10)))
-        self._initialized = False
-
-    def _click(self, event, x, y, flags, param):
-        self.currentPos = (x,y)
-        if event == cv.EVENT_LBUTTONDOWN:
-            drawImg = self.drawImg.copy()
-            gray = cv.cvtColor(drawImg, cv.COLOR_BGR2GRAY)
-
-            kernel = circularKernel(int(self.windowRadius*2+1))
-            mask = np.zeros(gray.shape, dtype=np.uint8)
-
-            mask[self.currentPos[1]-self.windowRadius:self.currentPos[1]+self.windowRadius+1, 
-                 self.currentPos[0]-self.windowRadius:self.currentPos[0]+self.windowRadius+1] = kernel
-            
-            grayMasked = cv.bitwise_and(gray, gray, mask=mask)
-            maxIdx = np.unravel_index(np.argmax(grayMasked), gray.shape)
-            maxPos = maxIdx[1], maxIdx[0]
-            self.coordinates.append(maxPos)
-
-        self._draw()
-
-    def _draw(self):
-        if self.drawImg is not None:
-            drawImg = self.drawImg.copy()
-
-            gray = cv.cvtColor(drawImg, cv.COLOR_BGR2GRAY)
-
-            for center in self.coordinates:
-                _, grayThreholded = cv.threshold(gray, gray[center[1], center[0]]*self.p, 256, cv.THRESH_TOZERO)
-                cnt, _ = findPeakContourAt(grayThreholded, center)
-                #cv.circle(drawImg, center, 0, (255,0,0), 1)
-                cv.drawContours(drawImg, [cnt], 0, (255,0,0), -1)
-                cv.putText(drawImg, "I: {}".format(gray[center[1], center[0]]), (center[0]+20, center[1]-20), 1, 1, color=(255,0,0))
-
-            cv.circle(drawImg, self.currentPos, self.windowRadius, (0,255,0), 1)
-            cv.imshow("Peak analyzer p={}".format(self.p), drawImg)
-
-    def update(self, img):
-        self.coordinates = []
-        self.drawImg = img.copy()
-
-        cv.imshow("Peak analyzer p={}".format(self.p), self.drawImg)
-
-        if not self._initialized:
-            cv.setMouseCallback("Peak analyzer p={}".format(self.p), self._click)
-            self._initialized = True
-
-
 class ImageAnalyzeNode:
     def __init__(self, datasetDir):
         datasetDir = makeAbsolute(datasetDir, loloDefs.IMAGE_DATASET_DIR)
@@ -426,461 +237,19 @@ class ImageAnalyzeNode:
         self.rectImgPublisher.publish(self.bridge.cv2_to_imgmsg(imgRect, "bgr8"))
         self.camInfoPublisher.publish(self.cameraInfoMsg)
         self.featureModelPublisher.publish(self.featureModelMsg)
-        # if self.cameraInfoMsg:
-        #     self.camInfoPublisher.publish(self.cameraInfoMsg)
-        # else:
-        #     msg = CameraInfo()
-        #     msg.width = img.shape[1]
-        #     msg.height = img.shape[0]
-        #     msg.K = np.eye(3, dtype=np.float32).ravel()
-        #     msg.D = np.zeros((1, 4), dtype=np.float32)
-        #     msg.R = np.eye(3, dtype=np.float32).ravel()
-        #     msg.P = np.eye(3, 4, dtype=np.float32).ravel()
-        #     self.camInfoPublisher.publish(msg)
+
 
     def _associatedImagePointsCallback(self, msg):
         self.associatedImgPointsMsg = msg
+
 
     def _undistortErrCircles(self, errCircles):
         imgPoints = np.array([(x,y) for x, y, _ in errCircles], dtype=np.float32)
         undistImgPoints = self.camera.undistortPoints(imgPoints)
         errCirclesUndist = [(p[0], p[1], errCirc[2]) for p, errCirc in zip(undistImgPoints, errCircles)]
-        # imgPoints = imgPoints.reshape((len(imgPoints), 1, 2))
-
-        # imagePointsUndist = cv.undistortPoints(imgPoints, self.camera.cameraMatrix, self.camera.distCoeffs, P=self.camera.projectionMatrix)
-        # imagePointsUndist = imagePointsUndist.reshape((len(imagePointsUndist), 2))
-
-        # errCirclesUndist = []
-        # for imgPointUndist, errCircle in zip(imagePointsUndist, errCircles):
-        #     errCirclesUndist.append([int(round(imgPointUndist[0])), 
-        #                              int(round(imgPointUndist[1])), 
-        #                              errCircle[2]])
 
         return errCirclesUndist
 
-    def _histogram(self, gray):
-        # 1D histogram
-        
-        hist = cv.calcHist([gray], [0], None, [256], [0,256])
-        hist = hist.ravel()
-        #hist = - hist # find valleys
-
-        
-        # 2D histogram
-        xx, yy = np.mgrid[0:gray.shape[0], 0:gray.shape[1]]
-        plt.cla()
-        #gray = cv.flip(gray, 1)
-        gray = cv.flip(gray, 0)
-        plt.contour(yy, xx, gray, level=10)
-
-    def _histogram1D(self, imgs):
-        ########### plot peaks ##############
-        from scipy import signal
-        plt.cla()
-        N = 100
-        for img in imgs:
-            hist = cv.calcHist([img], [0], None, [256], [0,256])
-            hist = hist.ravel()
-            hist = hist/hist[N:].max()
-            
-           
-            plt.plot(hist)
-            peaks, _ = signal.find_peaks(hist)
-
-
-            #for peak in peaks:
-            #    if peak >= N:
-            #        plt.axvline(peak, ymin=0, ymax=hist[peak]/max(hist[N:]), c="r")
-        plt.axvline(self.analyzeThreshold, ymin=0, ymax=1, c="g")
-        plt.xlim([N, 256])
-        plt.ylim([0, 1])
-        #plt.pause(0.0001)
-        ########### plot peaks ##############
-
-
-    def _testImage(self, imgName, imgColorRaw, imgRectOrig, labeledImgs, i):
-
-        
-        tmpFrame = imgRectOrig.copy()
-        
-        # get error circles
-        if imgName not in labeledImgs:
-            raise Exception("Image '{}' is not labeled".format(imgName))
-        
-        errCircles = labeledImgs[imgName]
-        for j, ec in enumerate(self._undistortErrCircles(errCircles)):
-            drawErrorCircle(tmpFrame, ec, j, (0, 255, 0))
-
-        key = 0xFF
-        elapsed = None
-        errors = []
-        self.associatedImgPointsMsg = None
-
-        # publish once
-        self._publish(imgColorRaw, imgRectOrig)
-        start = time.clock()
-        while not rospy.is_shutdown():
-
-            # get associated points from subscription
-            #rospy.sleep(0.1)
-            if self.associatedImgPointsMsg:
-                if not elapsed:
-                    elapsed = time.clock() - start
-                points = msgToImagePoints(self.associatedImgPointsMsg)
-                
-                for p in points:
-                    cv.circle(tmpFrame, p, 2, (255, 0, 0), 2)
-
-                errors = [np.linalg.norm([p[0]-e[0], p[1]-e[1]]) for p, e in zip(points, errCircles)]
-                # image points found
-                self.associatedImgPointsMsg = None
-                break
-
-            cv.imshow("frame", tmpFrame)
-            cv.imshow("rect", imgRectOrig)
-            cv.setWindowTitle("frame", imgName)
-            cv.setMouseCallback("frame", self._click)
-
-            key = cv.waitKey(1) & 0xFF
-
-            if key == ord("q"):
-                break
-            elif key == 0xFF:# ord("p"):
-                continue
-            elif key == ord("p"):
-                print("publishing")
-                self._publish(imgColorRaw, imgRectOrig)
-                start = time.clock()
-            else:
-                break
-            
-        return key, elapsed, errors
-
-    def _testFeatureExtractor(self, datasetPath, labelFile, imageGenerator, featureExtractor=None):
-        
-        from lolo_perception.perception import Perception
-        from lolo_perception.feature_model import FeatureModel
-        from lolo_perception.camera_model import Camera
-        import timeit
-
-        trackingConfig = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "tracking_config/{}".format("tracking_configuration_small.yaml"))
-        featureModelYamlPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "feature_models/{}".format("donn_light.yaml"))
-        featureModel = FeatureModel.fromYaml(featureModelYamlPath)
-        camera = Camera(self.camera.projectionMatrix, np.zeros((1,4), dtype=np.float32), resolution=self.camera.resolution)
-        featureExtractor = Perception.create(trackingConfig, camera, featureModel)
-
-        labeledImgs = readLabeledImages(datasetPath, labelFile)
-
-        cv.imshow("frame", np.zeros((10,10), dtype=np.uint8))
-
-        undistort = not np.all(self.camera.distCoeffs == 0)
-
-        allErrors = []
-        failedImgs = []
-        filedNCandidates = []
-        filedNCandidates2 = []
-        nCandidates = []
-        peakIterations = []
-        poseEstimationAttempts = []
-
-        timeitNumber = 0
-        times = [] # total time
-        processTimes = [] # image processing time
-        undistortTimes = [] # undistortion time
-        covTimes = [] # covariance calc time
-        
-        estDSPose = None
-
-        for imgName, frame, i in imageGenerator():
-            imgColorRaw = frame.copy()
-
-            undistortElapsed = 0.1
-            if timeitNumber > 0:
-                timitFunc = lambda: self.camera.undistortImage(imgColorRaw).astype(np.uint8)
-                undistortElapsed = min(timeit.repeat(timitFunc, repeat=timeitNumber, number=1))
-
-            imgRect = self.camera.undistortImage(imgColorRaw).astype(np.uint8)
-
-            if not undistort:
-                imgRect = imgColorRaw.copy()
-
-            print("Frame " + str(i))
-
-            tmpFrame = imgRect.copy()
-
-            # for standard gray conversion, coefficients = [0.114, 0.587, 0.299]
-            
-            B = 0.164
-            G = 0.537
-            R = 0.299
-            colorCoeffs = None#[B,G,R] # Gives blue channel all the weight
-            
-            key = 0xFF
-            if featureExtractor:
-                # get error circles
-                if imgName not in labeledImgs:
-                    raise Exception("Image '{}' is not labeled".format(imgName))
-                
-                errCircles = labeledImgs[imgName]
-                if undistort:
-                    errCircles = self._undistortErrCircles(errCircles)
-                for j, ec in enumerate(errCircles):
-                    drawErrorCircle(tmpFrame, ec, j, (0, 255, 0))
-
-                imgRectROI = imgRect.copy()
-
-                offset = (0, 0)
-                if True:
-                    # Manual ROI                
-                    (x, y, w, h), roiCnt = regionOfInterest([[u,v] for u,v,r in errCircles], 80, 80)
-                    x = max(0, x)
-                    x = min(imgRect.shape[1]-1, x)
-                    y = max(0, y)
-                    y = min(imgRect.shape[0]-1, y)
-                    offset = (x,y)
-                    #roiMask = np.zeros(imgRect.shape[:2], dtype=np.uint8)
-                    #cv.drawContours(roiMask, [roiCnt], 0, (255,255,255), -1)
-                    #imgRectROI = cv.bitwise_and(imgRect, imgRect, mask=roiMask)
-
-                    imgRectROI = imgRect[y:y+h, x:x+w]
-                    cv.drawContours(tmpFrame, [roiCnt], 0, (0,255,0), 1)
-
-
-                #for i in range(10):
-                #start = time.clock()
-                #elapsed = time.clock()-start
-                elapsed = 0.1
-                if timeitNumber > 0:
-                    timitFunc = lambda: featureExtractor.estimatePose(imgRectROI, 
-                                                                    estDSPose=estDSPose,
-                                                                    estCameraPoseVector=None,
-                                                                    colorCoeffs=colorCoeffs)
-                    elapsed = min(timeit.repeat(timitFunc, repeat=timeitNumber, number=1))
-                
-                
-                dsPose, poseAquired, candidates, processedImg, poseImg = featureExtractor.estimatePose(imgRectROI, 
-                                                                                                        estDSPose=None,
-                                                                                                        estCameraPoseVector=None,
-                                                                                                        colorCoeffs=colorCoeffs)
-                
-                
-
-                cv.imshow("processed image", processedImg)
-                cv.imshow("pose image", poseImg)
-                cv.imshow("frame", tmpFrame)
-                cv.setWindowTitle("frame", imgName)
-                key = cv.waitKey(1)
-                
-                """
-                # When using predicted ROI 
-                if estDSPose and not dsPose:
-                    start = time.clock()
-                    dsPose, poseAquired, candidates, processedImg, poseImg = featureExtractor.estimatePose(imgRectROI, 
-                                                                                                        estDSPose=None,
-                                                                                                        estCameraPoseVector=None,
-                                                                                                        colorCoeffs=colorCoeffs,
-                                                                                                        calcCovariance=False)
-                    elapsed = time.clock()-start
-
-                    cv.imshow("processed image", processedImg)
-                    cv.imshow("frame", tmpFrame)
-                    cv.setWindowTitle("frame", imgName)
-                    key = cv.waitKey(1)
-                """
-                attempts = 0
-                if dsPose:
-                    attempts = dsPose.attempts
-                poseEstimationAttempts.append(attempts)
-                peakIterations.append(featureExtractor.lightSourceDetector.localPeak.iterations)
-
-                for ls in candidates:
-                    ls.center = ls.center[0]+offset[0], ls.center[1]+offset[1]
-                
-                covElapsed = 0
-                if dsPose:
-                    covElapsed = 0.1
-                    if timeitNumber > 0:
-                        def covCalc():
-                            calcPoseCovarianceFixedAxis(dsPose.camera, 
-                                                        dsPose.featureModel, 
-                                                        dsPose.translationVector, 
-                                                        dsPose.rotationVector, 
-                                                        dsPose.pixelCovariances)
-                        #def covCalc():
-                        timeitFunc = covCalc
-                        covElapsed = min(timeit.repeat(timeitFunc, repeat=timeitNumber, number=1))
-                    dsPose.calcCovariance()
-                    #for ls in dsPose.associatedLightSources:
-                    #    ls.center = ls.center[0]+offset[0], ls.center[1]+offset[1]
-
-                #estDSPose = dsPose
-                totElapsed = undistortElapsed + elapsed + covElapsed
-                times.append(totElapsed)
-                processTimes.append(elapsed)
-                undistortTimes.append(undistortElapsed)
-                covTimes.append(covElapsed)
-                nCandidates.append(len(candidates))
-
-                if dsPose:
-                    points = [ls.center for ls in dsPose.associatedLightSources]
-                    for p in points:
-                        cv.circle(tmpFrame, p, 2, (255, 0, 0), 2)
-                    
-                    errors = [np.linalg.norm([p[0]-e[0], p[1]-e[1]]) for p, e in zip(points, errCircles)]
-                    err = sum(errors)/len(errors)
-                    allErrors.append(err)
-                else:
-                    allErrors.append(None)
-                    failedImgs.append(i)
-                
-                if dsPose:
-                    if len(candidates) > len(errCircles):
-                        filedNCandidates2.append(i)
-
-                    for ls in dsPose.associatedLightSources:
-                        if candidates.index(ls) > len(errCircles)-1:
-                            filedNCandidates.append(i)
-                            break
-                else:
-                    filedNCandidates.append(i)
-                    filedNCandidates2.append(i)
-
-                allErrorsTemp = [e for e in allErrors if e is not None]
-                if allErrorsTemp:
-                    avgError = sum(allErrorsTemp)/len(allErrorsTemp)
-                    print("Avg err:", avgError)
-                print("Avg time:", sum(times)/len(times))
-                print("Avg hz:", 1./ (sum(times)/len(times)))
-                
-            else:
-                cv.imshow("frame", imgRect)
-                cv.setWindowTitle("frame", imgName)
-                key, elapsed, errors = self._testImage(imgName, imgColorRaw, imgRect, labeledImgs, i)
-                if elapsed:
-                    totElapsed = undistortElapsed + elapsed
-                    err = sum(errors)/len(errors)
-                    allErrors.append(err)
-                    avgError = (avgError*(i-1) + err)/float(i)
-                    avgTime = (avgTime*(i-1) + totElapsed)/float(i)
-                    print("Avg err:", avgError)
-                    print("Avg hz:", 1./avgTime)
-
-            if key == ord("q"):
-                break
-
-        print("Failed images ({}): {}".format(len(failedImgs), failedImgs))
-        print("Failed n candidates ({}): {}".format(len(filedNCandidates), filedNCandidates))
-        print("Failed n candidates2 ({}): {}".format(len(filedNCandidates2), filedNCandidates2))
-        
-        nImages = i
-        imageNumbers = list(range(1, nImages+1))
-
-        figures = []  
-
-        figures.append(plt.figure())
-        plt.xlim(0, nImages+1)
-        plt.ylabel("Pixel error")
-        plt.xlabel("Image number")
-        allErrorsTemp = [e if e is not None else avgError for e in allErrors]
-        plt.plot(imageNumbers, allErrorsTemp)
-        for i,e in enumerate(allErrors):
-            if e is None:
-                plt.vlines(i, min(allErrorsTemp), max(allErrorsTemp), color="r")
-  
-        figures.append(plt.figure())
-        plt.xlim(0, nImages+1)
-        plt.ylabel("Computation time")
-        plt.xlabel("Image number")
-        plt.plot(imageNumbers, times)
-        plt.plot(imageNumbers, undistortTimes)
-        plt.plot(imageNumbers, processTimes)
-        plt.plot(imageNumbers, covTimes)
-        plt.legend(["Total", "Undistortion", "Image processing", "Covariance calculation"])
-        
-        figures.append(plt.figure())
-        plt.xlim(0, nImages+1)
-        plt.ylabel("Frequency")
-        plt.xlabel("Image number")
-        plt.plot(imageNumbers, 1./np.array(times))
-
-        figures.append(plt.figure())
-        plt.xlim(0, nImages+1)
-        plt.ylabel("Number of detected light sources")
-        plt.xlabel("Image number")
-        plt.plot(imageNumbers, nCandidates)
-
-        figures.append(plt.figure())
-        plt.xlim(0, nImages+1)
-        plt.ylabel("Peak iterations")
-        plt.xlabel("Image number")
-        plt.plot(imageNumbers, peakIterations) 
-
-        figures.append(plt.figure())
-        plt.xlim(0, nImages+1)
-        plt.ylabel("Pose estimation attempts")
-        plt.xlabel("Image number")
-        plt.plot(imageNumbers, poseEstimationAttempts)
-        plt.show()
-        
-        print("Saving images")
-        for i, fig in enumerate(figures):
-            fig.savefig("fig{}.png".format(i), dpi=fig.dpi, format='png')
-
-        saveLabeledImages(datasetPath, labelFile, labeledImgs)
-        cv.destroyAllWindows()
-
-
-    def _testImage2(self, imgName, imgColorRaw, imgRectOrig, labeledImgs, i):
-        tmpFrame = imgRectOrig.copy()
-        
-        errCircles = labeledImgs[i]
-        for j, ec in enumerate(self._undistortErrCircles(errCircles)):
-            drawErrorCircle(tmpFrame, ec, j, (0, 255, 0))
-
-        key = 0xFF
-        elapsed = None
-        errors = []
-        self.associatedImgPointsMsg = None
-
-        # publish once
-        self._publish(imgColorRaw, imgRectOrig)
-        start = time.time()
-        while not rospy.is_shutdown():
-
-            # get associated points from subscription
-            #rospy.sleep(0.1)
-            if self.associatedImgPointsMsg:
-                if not elapsed:
-                    elapsed = time.time() - start
-                points = msgToImagePoints(self.associatedImgPointsMsg)
-                
-                for p in points:
-                    cv.circle(tmpFrame, p, 2, (255, 0, 0), 2)
-
-                errors = [np.linalg.norm([p[0]-e[0], p[1]-e[1]]) for p, e in zip(points, errCircles)]
-                # image points found
-                self.associatedImgPointsMsg = None
-                break
-
-            cv.imshow("frame", tmpFrame)
-            #cv.imshow("rect", imgRectOrig)
-            cv.setWindowTitle("frame", imgName)
-            cv.setMouseCallback("frame", self._click)
-
-            key = cv.waitKey(1) & 0xFF
-
-            if key == ord("q"):
-                break
-            elif key == 0xFF:# ord("p"):
-                continue
-            elif key == ord("p"):
-                print("publishing")
-                self._publish(imgColorRaw, imgRectOrig)
-                start = time.time()
-            else:
-                break
-            
-        return key, elapsed, errors
 
     def _testTrackerOnImage(self, img, tracker, labels=None, estDSPose=None):
         result = {"est_pose": None,
@@ -914,9 +283,9 @@ class ImageAnalyzeNode:
         return result
 
 
-    def testTracker(self, trackingYaml, lebelUnlabelImages=False):
+    def testTracker(self, trackingYaml, labelUnlabelImages=False):
         trackingYaml = makeAbsolute(trackingYaml, loloDefs.TRACKING_CONFIG_DIR)
-        tracker = Perception.create(trackingYaml, self.camera, self.featureModel)
+        tracker = Tracker.create(trackingYaml, self.camera, self.featureModel)
 
         results = []
         estDSPose = None
@@ -962,48 +331,6 @@ class ImageAnalyzeNode:
             normError = np.average([r["norm_error"] for r in results])
             print("Successfull detections {}/{}".format(successes.count(True), successes.count(False)))
             print("Avg pixel error: {}".format(normError))
-        #print("Failed n candidates ({}): {}".format(len(filedNCandidates), filedNCandidates))
-        #print("Failed n candidates2 ({}): {}".format(len(filedNCandidates2), filedNCandidates2))
-        return
-        nImages = len(labeledImages)
-        imageNumbers = list(range(nImages))
-
-        figures = []  
-
-        figures.append(plt.figure())
-        plt.xlim(0, nImages+1)
-        plt.ylabel("Pixel error")
-        plt.xlabel("Image number")
-        allErrorsTemp = [e if e is not None else avgError for e in allErrors]
-        plt.plot(imageNumbers, allErrorsTemp)
-        for i,e in enumerate(allErrors):
-            if e is None:
-                plt.vlines(i, min(allErrorsTemp), max(allErrorsTemp), color="r")
-  
-        figures.append(plt.figure())
-        plt.xlim(0, nImages+1)
-        plt.ylabel("Computation time")
-        plt.xlabel("Image number")
-        plt.plot(imageNumbers, times)
-        plt.legend(["Total"])
-        
-        figures.append(plt.figure())
-        plt.xlim(0, nImages+1)
-        plt.ylabel("FPS")
-        plt.xlabel("Image number")
-        plt.plot(imageNumbers, 1./np.array(times))
-
-        figures.append(plt.figure())
-        plt.xlim(0, nImages+1)
-        plt.ylabel("Number of detected light sources")
-        plt.xlabel("Image number")
-        plt.plot(imageNumbers, nCandidates)
-        
-        print("Saving images")
-        for i, fig in enumerate(figures):
-            fig.savefig("fig{}.png".format(i), dpi=fig.dpi, format='png')
-
-        cv.destroyAllWindows()
 
 
     def _click(self, event, x, y, flags, imgIdx):
@@ -1154,7 +481,7 @@ class ImageAnalyzeNode:
     @classmethod
     def createDataset(cls, datasetDir, imageGenerator, cameraYaml, featureModelYaml, isRawImages, fps, startIdx=0, endIdx=None):
         """
-        Creates a dataset that is comptible with ImageAnalyzeNode.analyzeDataset().
+        Creates a dataset that is compatible with ImageAnalyzeNode.analyzeDataset().
         ImageAnalyzeNode.analyzeDataset() needs the following metadata to execute:
         cameraYaml - path to the camera yaml
         featureModelYaml - path to the feature model yaml
@@ -1187,6 +514,9 @@ class ImageAnalyzeNode:
 
     @staticmethod
     def videoImageGenerator(videoPath):
+        """
+        Generates images from a video file using opencv VideoCapture.
+        """
         cap = cv.VideoCapture(videoPath)
         if (cap.isOpened()== False):
             print("Error opening video stream or file")
@@ -1204,12 +534,15 @@ class ImageAnalyzeNode:
 
 
     @staticmethod
-    def rosbagImageGenerator(rosbagPath, imageRawTopic):
+    def rosbagImageGenerator(rosbagPath, imageTopic):
+        """
+        Generates images from a RosBag with the given image topic. The images can be either of type "Image" or "CompressedImage"
+        """
         bridge = CvBridge()
         bag = rosbag.Bag(rosbagPath)
 
         i = 0
-        for _, msg, _ in bag.read_messages(topics=imageRawTopic):
+        for _, msg, _ in bag.read_messages(topics=imageTopic):
             i += 1
             
             if rospy.is_shutdown():
@@ -1226,73 +559,10 @@ class ImageAnalyzeNode:
             yield frame
 
         if i == 0:
-            print("No image messages with topic '{}' found".format(imageRawTopic))
+            print("No image messages with topic '{}' found".format(imageTopic))
 
 
 if __name__ == "__main__":
-
-    # single light source
-    # imgLabelNode = ImageAnalyzeNode("config/camera_calibration_data/contour.yaml")
-    # videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "datasets/FILE0151.MP4")
-    # imgLabelNode.analyzeVideoImages(datasetPath, labelFile, videoPath, startFrame=550, analyzeImages=False)
-
-    # imgLabelNode = ImageAnalyzeNode("config/camera_calibration_data/contour.yaml")
-    # videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "datasets/171121/171121_straight_test.MP4")
-    # videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "datasets/171121/171121_straight_test_reversed.mkv")
-    # videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "datasets/171121/171121_angle_test.MP4")
-    # videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "datasets/FILE0197.MP4")
-    # videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "datasets/271121/271121_5planar_1080p.MP4")
-    # imgLabelNode.analyzeVideoImages(datasetPath, labelFile, videoPath, startFrame=100, analyzeImages=False, waitForFeatureExtractor=False) #350
-
-    # DoNN dataset
-    # imgLabelNode = ImageAnalyzeNode("config/camera_calibration_data/donn_camera.yaml")
-    # videoPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "image_dataset/dataset_recovery/donn.mp4")
-    # datasetRecovery = os.path.join(rospkg.RosPack().get_path("lolo_perception"), "image_dataset/dataset_recovery")
-    # imgLabelNode.analyzeVideoImages(datasetRecovery, "donn.txt", videoPath, startFrame=1, analyzeImages=True, test=True)
-
-    # imgLabelNode = ImageAnalyzeNode("config/camera_calibration_data/usb_camera_720p_sim.yaml")
-    # rosbagFile = "sim_bag.bag"
-    # rosbagPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), join("rosbags", rosbagFile))
-    # imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "/lolo/sim/camera_aft/image_color", startFrame=1000, analyzeImages=False)
-
-    # imgLabelNode = ImageAnalyzeNode("config/camera_calibration_data/usb_camera_720p_8.yaml")
-    # rosbagFile = "ice.bag"
-    # rosbagPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), join("rosbags", rosbagFile))
-    # imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "lolo_camera/image_raw", startFrame=1200, analyzeImages=False, waitForFeatureExtractor=False) # 1200
-
-    # imgLabelNode = ImageAnalyzeNode("config/camera_calibration_data/usb_camera_720p_8.yaml")
-    # rosbagFile = "test_session_5mm_led_prototype/pos_1.bag"
-    # rosbagPath = os.path.join(rospkg.RosPack().get_path("lolo_perception"), join("rosbags", rosbagFile))
-    #imgLabelNode.analyzeRosbagImages(datasetPath, labelFile, rosbagPath, "/lolo_camera/image_raw", startFrame=1, analyzeImages=False, waitForFeatureExtractor=False) # 1200
-
-    # For Aldo
-    # cameraYaml = "config/camera_calibration_data/kristineberg.yaml" # In /camera_calibration_data
-    
-    # Lab test
-    #rosbagFile = "2022-06-08-17-44-05_lab_docking_station.bag" # In /rosbags
-    #topic = "/csi_cam_1/camera/image_raw/compressed"
-    #startFrame = 700
-    
-    # Seabed 1
-    #rosbagFile = "2022-06-09-12-03-13.bag"
-    #topic = "/sam/perception/csi_cam_0/camera/image_raw/compressed"
-    #startFrame = 7000
-    
-    # Seabed 2
-    #rosbagFile = "2022-06-09-12-10-59.bag"
-    #topic = "/sam/perception/csi_cam_0/camera/image_raw/compressed"
-    #startFrame = 1
-
-    # Side cameras
-    #rosbagFile = "2022-06-09-19-44-50.bag"
-    
-    #cameraYaml = "config/camera_calibration_data/csi_cam_2.yaml"
-    #topic = "/sam/perception/csi_cam_2/camera/image_raw/compressed"
-
-    # rosbagFile = "kristineberg.bag"
-    # cameraYaml = "camera_calibration_data/csi_cam_1.yaml"
-    # topic = "/sam/perception/csi_cam_1/camera/image_raw/compressed"
-    # startFrame = 0 #5900 #8800
 
     import argparse
 
@@ -1300,23 +570,30 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Analyze images from datasets that can be created from rosbags or videos.",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    loloDir = rospkg.RosPack().get_path("lolo_perception")
-    datasetsDir = os.path.join(loloDir, "image_datasets")
 
+    # Directory of the dataset to be opened (directory exists) or created (the directory should not exist and will be created)
     parser.add_argument('dataset_dir', 
                         help="The directory of the dataset to be analyzed/created." \
                              "If the path is relative, the dataset is loaded/saved in {}.\n" \
                              "If the directory exists, other arguments are ignored and the node will start".format(loloDefs.IMAGE_DATASET_DIR))
-    parser.add_argument("-test", action="store_true", help="Using this flag, the tracker specified by the tracking yaml will be tested on the available labels in the dataset.")
-    parser.add_argument("-tracking_yaml", help="Tracking configuration of the tracker to be tested. Relative path starts at {}".format(loloDefs.TRACKING_CONFIG_DIR))
+    
+    # Needed for creating a new dataset    
     parser.add_argument("-file", help="Rosbag (.bag) or video (see opencv supported formats) file path to generate images from to create the dataset.")
     parser.add_argument("-topic", help="If -file is a rosbag, the image topic has to be given.")
+    
+    # Metadata that is saved for the new dataset
     parser.add_argument("-camera_yaml", default="Undefined", help="Path to the camera yaml. Relative path starts from {}".format(loloDefs.CAMERA_CONFIG_DIR))
     parser.add_argument("-feature_model_yaml", default="Undefined", help="Path to the feature model yaml. Relative path starts from {}".format(loloDefs.FEATURE_MODEL_CONFIG_DIR))
     parser.add_argument("-fps", default=30, help="Frames per second of the source recording.")
     parser.add_argument("-is_raw_images", default=True, help="Indicates if the recorded images are raw. Currently this has to be true.")
     parser.add_argument("-start", default=0, type=int,  help="Start image index of the source recording to save the dataset.")
     parser.add_argument("-end", type=int, help="End image index of the source recording to save the dataset.")
+    
+    # Testing your specified tracker
+    parser.add_argument("-test", action="store_true", help="Using this flag, the tracker specified by the tracking yaml will be tested on the available labels in the dataset.")
+    parser.add_argument("-tracking_yaml", help="Tracking configuration of the tracker to be tested. Relative path starts at {}".format(loloDefs.TRACKING_CONFIG_DIR))
+    
+    # Prints the available datasets
     parser.add_argument("-print_info", action="store_true", help="Prints all available datasets and exits.")
     
     args = parser.parse_args()
@@ -1352,7 +629,7 @@ if __name__ == "__main__":
             parser.error("The dataset does not exist and cannot create a new if -file is not given.")
         isRosbag = os.path.splitext(args.file)[1] == ".bag"
         if isRosbag:
-            # ROsbag
+            # Rosbag
             if not args.topic:
                 parser.error("Require --topic when -file is a rosbag.")
 

@@ -8,10 +8,10 @@ import py_logging as logging
 import math
 from scipy.spatial.transform import Rotation as R
 
-from lolo_perception.image_processing import featureAssociation, featureAssociationSquareImprovedWithFilter
-from lolo_perception.pose_estimation import DSPoseEstimator
+from lolo_perception.image_processing import featureAssociation, featureAssociationSquareImprovedWithFilter, regionOfInterest
+from lolo_perception.pose_estimator import DSPoseEstimator
 from lolo_perception.light_source_detector import getLightSourceDetectorFromName
-from lolo_perception.perception_utils import plotPoseImageInfoSimple, plotPoseImageInfo, regionOfInterest
+from lolo_perception.plotting_utils import plotPoseImageInfoSimple, plotPoseImageInfo
 from lolo_perception.utils import Timer
 
 class LightSourceCombinationGenerator:
@@ -34,10 +34,6 @@ class LightSourceCombinationGenerator:
             else:
                 raise Exception("Invalid association flag")
             
-            # Previous versions, not used
-            #return featureAssociationSquare(self.featureModel.features, comb, self.camera.resolution)
-            #return featureAssociationSquareImproved(self.featureModel.features, comb)
-
         self.assFunc = assFunc
         self.sort = sort
 
@@ -110,7 +106,7 @@ class LightSourceCombinationGenerator:
 
             yield associated
 
-class Perception:
+class Tracker:
 
     def __init__(self, 
                  camera, 
@@ -197,9 +193,14 @@ class Perception:
 
         # Create light source detector
         detectorParams = params["light_source_detector"]
-        detectorClass = getLightSourceDetectorFromName(detectorParams["class_name"])
-        del detectorParams["class_name"]
-        detector = detectorClass(**detectorParams)
+        keys = detectorParams.keys()
+        if len(keys) > 1:
+            raise Exception("More than 1 class entries for light_source_detector.")
+        
+        className = keys[0]
+        print("CLALLALLSLS", className)
+        detectorClass = getLightSourceDetectorFromName(className)
+        detector = detectorClass(**detectorParams[className])
         
         # Create pose estimator
         poseEstParams = params["pose_estimator"]
@@ -207,7 +208,7 @@ class Perception:
 
         # Create tracker
         trackingParams = params["tracker"]
-        tracker = Perception(camera, dockingStation, detector, poseEstimator, **trackingParams)
+        tracker = Tracker(camera, dockingStation, detector, poseEstimator, **trackingParams)
 
         return tracker
 

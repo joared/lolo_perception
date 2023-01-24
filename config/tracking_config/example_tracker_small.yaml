@@ -11,32 +11,31 @@ tracker:
     sortCombinations: false
 
 light_source_detector:
-    class_name: "ModifiedHATSLocalPeak"
-    toHATSScale:  10000000000 # 3
-    toPeakScale: 1.5
+    ModifiedHATSLocalPeak:
+        toHATSScale:  2 # 3
+        toPeakScale: 1.5
 
-    modifiedHATSParams:
-        blurKernelSize: &blur_kernel_size 11 # <1280p:5 >1280:11
-        minArea: &min_area 150 #80/150
-        minRatio: &min_circle_extent 0.0
-        maxIntensityChange: &max_intensity_change 0.7
-        ignorePeakAtMax: false
-        peakMargin: 0
-        mode: 'simple'
-        showHistogram: False
+        modifiedHATSParams:
+            blurKernelSize: &blur_kernel_size 11 # <1280p:5 >1280:11
+            minArea: &min_area 150 #80/150
+            minRatio: &min_circle_extent 0.0
+            maxIntensityChange: &max_intensity_change 0.7
+            ignorePeakAtMax: false
+            peakMargin: 0
+            mode: 'simple'
+            showHistogram: False
 
-    localPeakParams:
-        blurKernelSize: *blur_kernel_size
-        minArea: *min_area
-        minCircleExtent: *min_circle_extent
-        maxIntensityChange: *max_intensity_change
-        ignorePAtMax: false
-        kernelSize: 11 # 21 for 1080p else 11
-        pMin: 0.97
-        pMax: 0.99
-        windowRad: 0
-        maxIter: 100
-        filterAfter: false
+        localPeakParams:
+            blurKernelSize: *blur_kernel_size
+            minArea: *min_area
+            minCircleExtent: *min_circle_extent
+            maxIntensityChange: *max_intensity_change
+            ignorePAtMax: false
+            kernelSize: 11 # 21 for 1080p else 11
+            pMin: 0.97
+            pMax: 0.99
+            maxIter: 100
+            filterAfter: false
 
 pose_estimator:
     initFlag: "LM"
