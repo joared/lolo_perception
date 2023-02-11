@@ -3,14 +3,16 @@
   <arg name="perspective" default="false" /> <!--None, camera or dockingstation-->
   <arg name="publish_path" default="false" /> <!--if true, perspective has to be given-->
   <arg name="sim" default="false" /> <!-- When running simulation, some topic needs to be remapped-->
-  <arg name="hz" default="30"/>
   <arg name="pose_feedback" default="true"/>
   <arg name="cv_show" default="false"/>
   <arg name="rviz" default="false"/>
 
-  <!--Some parameters for the perception node-->
-  <arg name="feature_model_yaml" default="false" />
-  <arg name="tracker_yaml" default="example_tracker_small.yaml" />
+  <!--Some parameters for the tracker node-->
+  <arg name="hz" default="30"/>
+  <arg name="feature_model_yaml" default="false" /> <!-- If false, the tracker will wait for the feature model to be published -->
+  <arg name="tracker_yaml" default="tracker.yaml" />
+  <arg name="plotting" default="fancy"/> <!-- simple, fancy or false (no plotting) -->
+  <arg name="logging" default="false"/> <!-- If true, logs will be saved in the logging directory-->
 
   <!-- When video_device is specified, we launch usb_cam.launch-->
   <include file="$(find lolo_perception)/launch/usb_cam.launch" if="$(eval arg('video_device') != false)">
@@ -25,6 +27,8 @@
     <param name="cv_show" value="$(arg cv_show)"/>
     <param name="publish_cam_pose" value="$(eval arg('perspective') == 'dockingstation')"/>
     <param name="pose_feedback" value="$(arg pose_feedback)"/>
+    <param name="plotting" value="$(arg plotting)"/>
+    <param name="logging" value="$(arg logging)"/>
 
     <remap from="/lolo_camera/image_rect_color" to="/lolo/sim/camera_aft/image_color" if="$(eval arg('sim') == true)"/>
     <remap from="/lolo_camera/camera_info" to="/lolo/sim/camera_aft/camera_info" if="$(eval arg('sim') == true)"/>

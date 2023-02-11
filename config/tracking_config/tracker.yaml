@@ -12,18 +12,18 @@ tracker:
 
 light_source_detector:
     ModifiedHATSLocalPeak:
-        toHATSScale: 3
+        toHATSScale:  3 # 3
         toPeakScale: 1.5
 
         modifiedHATSParams:
-            blurKernelSize: &blur_kernel_size 11 # <1280p:5 >1280:11
-            minArea: &min_area 80 #80
+            blurKernelSize: &blur_kernel_size 15 # large blur -> large p (15 is large)
+            minArea: &min_area 150 #80/150
             minRatio: &min_circle_extent 0.0
             maxIntensityChange: &max_intensity_change 0.7
             ignorePeakAtMax: false
             peakMargin: 0
             mode: 'peak'
-            showHistogram: False
+            showHistogram: false
 
         localPeakParams:
             blurKernelSize: *blur_kernel_size
@@ -31,10 +31,9 @@ light_source_detector:
             minCircleExtent: *min_circle_extent
             maxIntensityChange: *max_intensity_change
             ignorePAtMax: false
-            kernelSize: 21 # 21 for 1080p else 11
-            pMin: 0.97
+            kernelSize: 21 # lower this is if too large
+            pMin: 0.99 # 0.97 if blur = 11
             pMax: 0.99
-            windowRad: 0
             maxIter: 100
             filterAfter: false
 

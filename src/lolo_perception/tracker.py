@@ -30,6 +30,8 @@ class LightSourceCombinationGenerator:
             if associationFlag == self.ASSOCIATE_SIMPLE:
                 return featureAssociation(self.featureModel.features, comb)
             elif associationFlag == self.ASSOCIATE_SQUARE_W_FILTER:
+                # TODO: make "p" a parameter
+                # TODO: the "square" filter should be implemented in postAssociationFilter
                 return featureAssociationSquareImprovedWithFilter(self.featureModel.features, comb, p=0.33) # p = 0.07, 0.33
             else:
                 raise Exception("Invalid association flag")
@@ -37,18 +39,6 @@ class LightSourceCombinationGenerator:
         self.assFunc = assFunc
         self.sort = sort
 
-    def preFilter(self, candidates):
-        filteredCandidates = candidates
-        # filteredCandidates = []
-        # for ls in candidates:
-        #     if ls.intensity < 180 and ls.radius > 10:
-        #         # invalid
-        #         pass
-        #     else:
-        #         # valid
-        #         filteredCandidates.append(ls)
-
-        return filteredCandidates
 
     def group(self, candidates):
         # TODO: Grouping the candidates (based on features such as area, size and intensity)
@@ -59,13 +49,16 @@ class LightSourceCombinationGenerator:
 
         return groups
 
+
     def preAssociationFilter(self, candidates):
         # TODO: Filter out candidates before association
         return True
 
+
     def postAssociationFilter(self, associated):
         # TODO: Filter out candidates after association
         return True
+
 
     def _generate(self, candidates):
         # TODO: group candidates
@@ -74,11 +67,8 @@ class LightSourceCombinationGenerator:
             for combination in itertools.combinations(groupedCandidates, len(self.featureModel.features)):
                 yield combination
 
-    def generate(self, candidates):
-        
-        # TODO: This should be done by the light source detector
-        candidates = self.preFilter(candidates)
 
+    def generate(self, candidates):
         lightCandidateCombinations = self._generate(candidates)
 
         if self.sort:
@@ -99,7 +89,6 @@ class LightSourceCombinationGenerator:
             if associated is None:
                 continue
 
-            
             if not self.postAssociationFilter(associated):
                # If the post filter does not accept the combination of light sources, continue to the next
                continue
@@ -107,6 +96,10 @@ class LightSourceCombinationGenerator:
             yield associated
 
 class Tracker:
+
+    PLOTTING_DISABLED = "disabled"
+    PLOTTING_SIMPLE = "simple"
+    PLOTTING_FANCY = "fancy"
 
     def __init__(self, 
                  camera, 
@@ -198,9 +191,11 @@ class Tracker:
             raise Exception("More than 1 class entries for light_source_detector.")
         
         className = keys[0]
-        print("CLALLALLSLS", className)
         detectorClass = getLightSourceDetectorFromName(className)
-        detector = detectorClass(**detectorParams[className])
+        if detectorParams[className]:
+            detector = detectorClass(**detectorParams[className])
+        else:
+            detector = detectorClass()
         
         # Create pose estimator
         poseEstParams = params["pose_estimator"]
@@ -243,13 +238,17 @@ class Tracker:
         else:
             logging.error("Estimated pose has no covariance, could not increase it")
 
+        # TODO: better to pass a delta camera pose, then there is no need to save this 
+        self.estCameraPoseVector = estCameraPoseVector
+
         return estDSPose
 
     def estimatePose(self, 
                      imgColor, 
                      estDSPose=None,
                      estCameraPoseVector=None,
-                     colorCoeffs=None):
+                     colorCoeffs=None,
+                     plotting="fancy"):
 
         # Initialize timers for recording the processing time
         imgProcTimer = Timer("Image Proc")
@@ -265,12 +264,15 @@ class Tracker:
         else:
             gray = cv.cvtColor(imgColor, cv.COLOR_BGR2GRAY)
 
-        # information about contours extracted from the feature extractor is plotted in this image
-        # WARNING: Some overhead and slows down the execution time a bit
-        processedImg = cv.cvtColor(gray, cv.COLOR_GRAY2BGR) # Information about the light source detection is plotted here
-        poseImg = imgColor.copy()                           # Information about pose, fps etc. is plotted on this image
-        #processedImg = None
-        #poseImg = None
+        # information about contours extracted from the ligt source detector is plotted in this image
+        # NOTE: Some overhead and slows down the execution time a bit
+        processedImg = None # Information about the light source detection is plotted here
+        poseImg = None      # Information about pose, fps etc. is plotted on this image
+        if plotting == self.PLOTTING_FANCY:
+            processedImg = cv.cvtColor(gray, cv.COLOR_GRAY2BGR)
+            poseImg = imgColor.copy()
+        elif plotting == self.PLOTTING_SIMPLE:
+            poseImg = imgColor.copy()
 
         roiCnt = None           # ROI of the passed estDSPose
         roiCntUpdated = None    # ROI of the new dsPose
@@ -284,16 +286,15 @@ class Tracker:
 
             # Update the estDSPose from the given estCameraPoseVector and increase covariance
             estDSPose = self.updateDSPoseFromNewCameraPose(estDSPose, estCameraPoseVector)
-        self.estCameraPoseVector = estCameraPoseVector
 
         # Extract light source candidates from image
         imgProcTimer.start()
-        _, candidates, roiCntUpdated = self.lightSourceDetector.detect(gray, 
-                                                                       nFeatures=len(self.featureModel.features),
-                                                                       additionalCandidates=self.additionalCandidates, 
-                                                                       estDSPose=estDSPose,
-                                                                       roiMargin=self.roiMargin, 
-                                                                       drawImg=processedImg)
+        detectorImg, candidates, roiCntUpdated = self.lightSourceDetector.detect(gray, 
+                                                                                 nFeatures=len(self.featureModel.features),
+                                                                                 additionalCandidates=self.additionalCandidates, 
+                                                                                 estDSPose=estDSPose,
+                                                                                 roiMargin=self.roiMargin, 
+                                                                                 drawImg=processedImg)
         imgProcTimer.stop()
         
         if len(candidates) >= len(self.featureModel.features):
@@ -346,25 +347,27 @@ class Tracker:
             if dsPose:
                 progress = min(1, dsPose.detectionCount/float(self.detectionCountThresh))
 
-            #poseImg = plotPoseImageInfoSimple(poseImg, dsPose, poseAquired, roiCntUpdated, progress)
+            if plotting == self.PLOTTING_SIMPLE:
+                poseImg = plotPoseImageInfoSimple(poseImg, dsPose, poseAquired, roiCntUpdated, progress)
 
-            piChartArgs = {"Image Proc": imgProcTimer.elapsed(),
-                           "Pose Est": poseEstTimer.elapsed(),
-                           "Rest": totRestElapsed}
+            elif plotting == self.PLOTTING_FANCY:
+                piChartArgs = {"Image Proc": imgProcTimer.elapsed(),
+                            "Pose Est": poseEstTimer.elapsed(),
+                            "Rest": totRestElapsed}
 
-            poseImg = plotPoseImageInfo(poseImg,
-                                        str(self.lightSourceDetector),
-                                        dsPose,
-                                        self.camera,
-                                        self.featureModel,
-                                        poseAquired,
-                                        self.validOrientationRange,
-                                        str(self.poseEstimator),
-                                        piChartArgs,
-                                        roiCnt,
-                                        roiCntUpdated,
-                                        progress=progress,
-                                        fixedAxis=False)
+                poseImg = plotPoseImageInfo(poseImg,
+                                            str(self.lightSourceDetector),
+                                            dsPose,
+                                            self.camera,
+                                            self.featureModel,
+                                            poseAquired,
+                                            self.validOrientationRange,
+                                            str(self.poseEstimator),
+                                            piChartArgs,
+                                            roiCnt,
+                                            roiCntUpdated,
+                                            progress=progress,
+                                            fixedAxis=False)
 
         if poseImg is None:
             poseImg = np.zeros((10,10,3), dtype=np.uint8)
@@ -374,7 +377,7 @@ class Tracker:
         self.poseImg = poseImg
         self.processedImg = processedImg
 
-        return dsPose, poseAquired, candidates, processedImg, poseImg
+        return dsPose, poseAquired, candidates, processedImg, poseImg, detectorImg
         
 
 if __name__ == '__main__':

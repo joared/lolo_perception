@@ -68,10 +68,7 @@ class DSPose:
                              self.featureModel.features)
 
 
-    def validReprError(self, 
-                       minThreshold=2.0
-                       #minThreshold=0.7071
-                       ):
+    def validReprError(self):
 
         for err, pCov in zip(self.reprErrors, self.pixelCovariances):
             try:
@@ -80,7 +77,8 @@ class DSPose:
                 logging.warn("Singular image covariance matrix")
                 return False
 
-            # Any reprojection below imThreshold is OK
+            # TODO: Any reprojection below imThreshold is OK
+            #minThreshold=0.7071
             #if np.linalg.norm(err) < minThreshold:
             #    continue
             #else:
@@ -269,7 +267,6 @@ class DSPoseEstimator:
             valid = validReprError and validMahaDist
 
             if firstValid:
-                # TODO: Temporary, remove
                 if validReprError and not validMahaDist:
                     logging.info("Mahalanobis outlier, rejecting pose")
 

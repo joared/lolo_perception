@@ -263,7 +263,7 @@ class ImageAnalyzeNode:
         timer = Timer("Elapsed")
 
         timer.start()
-        dsPose, _, candidates, _, _ = tracker.estimatePose(img, estDSPose=estDSPose)
+        dsPose, _, candidates, _, _, _ = tracker.estimatePose(img, estDSPose=estDSPose)
         timer.stop()
         result["est_pose"] = dsPose
         result["elapsed"] = timer.elapsed()
@@ -372,7 +372,7 @@ class ImageAnalyzeNode:
         # (the opencv trackbars does not really allow this).
         imageTrackbar = Trackbar("Image", wName, imgIdx, 1)
         sourceFPSTrackbar = Trackbar("Source FPS", wName, dataset.metadata["fps"], 60, minValue=1)
-        playbackTrackbar = Trackbar("Playback FPS", wName, dataset.metadata["fps"], 60, minValue=1)
+        playbackTrackbar = Trackbar("Playback FPS", wName, dataset.metadata["playback_fps"], 60, minValue=1)
 
         labeler = ImageLabeler()
         while True:
@@ -393,6 +393,7 @@ class ImageAnalyzeNode:
             sourceFPSTrackbar.update()
             playbackTrackbar.update()
             dataset.metadata["fps"] = sourceFPSTrackbar.value
+            dataset.metadata["playback_fps"] = playbackTrackbar.value
 
             imgColorRaw = img.copy()
             
@@ -479,7 +480,7 @@ class ImageAnalyzeNode:
 
 
     @classmethod
-    def createDataset(cls, datasetDir, imageGenerator, cameraYaml, featureModelYaml, isRawImages, fps, startIdx=0, endIdx=None):
+    def createDataset(cls, datasetDir, imageGenerator, cameraYaml, featureModelYaml, isRawImages, fps, playbackFPS, startIdx=0, endIdx=None):
         """
         Creates a dataset that is compatible with ImageAnalyzeNode.analyzeDataset().
         ImageAnalyzeNode.analyzeDataset() needs the following metadata to execute:
@@ -493,23 +494,24 @@ class ImageAnalyzeNode:
         metadata = {"camera_yaml": cameraYaml,
                     "feature_model_yaml": featureModelYaml,
                     "fps": fps,
+                    "playback_fps": playbackFPS,
                     "is_raw_images": isRawImages}
 
         return ImageDataset.create(datasetDir, imageGenerator, metadata, startIdx, endIdx)
 
 
     @classmethod
-    def createDatasetFromRosbag(cls, datasetDir, rosbagPath, imageRawTopic, cameraYaml, featureModelYaml, isRawImages, fps, startIdx=0, endIdx=None):
+    def createDatasetFromRosbag(cls, datasetDir, rosbagPath, imageRawTopic, cameraYaml, featureModelYaml, isRawImages, fps, playbackFPS, startIdx=0, endIdx=None):
         rosbagPath = makeAbsolute(rosbagPath, loloDefs.ROSBAG_DIR)
         g = cls.rosbagImageGenerator(rosbagPath, imageRawTopic)
-        cls.createDataset(datasetDir, g, cameraYaml, featureModelYaml, isRawImages, fps, startIdx, endIdx)
+        cls.createDataset(datasetDir, g, cameraYaml, featureModelYaml, isRawImages, fps, playbackFPS, startIdx, endIdx)
 
 
     @classmethod
-    def createDatasetFromVideo(cls, datasetDir, videoPath, cameraYaml, featureModelYaml, isRawImages, fps, startIdx=0, endIdx=None):
+    def createDatasetFromVideo(cls, datasetDir, videoPath, cameraYaml, featureModelYaml, isRawImages, fps, playbackFPS, startIdx=0, endIdx=None):
         videoPath = makeAbsolute(videoPath, loloDefs.VIDEO_DIR)
         g = cls.videoImageGenerator(videoPath)
-        cls.createDataset(datasetDir, g, cameraYaml, featureModelYaml, isRawImages, fps, startIdx, endIdx)
+        cls.createDataset(datasetDir, g, cameraYaml, featureModelYaml, isRawImages, fps, playbackFPS, startIdx, endIdx)
 
 
     @staticmethod

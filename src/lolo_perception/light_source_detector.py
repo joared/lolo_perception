@@ -6,9 +6,7 @@ import cv2 as cv
 import numpy as np
 import lolo_perception.py_logging as logging
 from scipy import signal
-
-from lolo_perception.image_processing import LightSource, circularKernel, contourCentroid, contourRatio, drawInfo, localPeak, localPeakWindowed, regionOfInterest
-
+from lolo_perception.image_processing import circularKernel, contourCentroid, contourRatio, drawInfo, localPeak, localPeakWindowed, regionOfInterest
 
 def printLightSourceDetectors():
     for name, obj in inspect.getmembers(sys.modules[__name__]):
@@ -36,6 +34,31 @@ def getLightSourceDetectorFromName(className):
         raise Exception("'{}' not found.".format(className))
 
 
+class LightSource:
+    def __init__(self, cnt, intensity, overlappingLightSource=None):
+
+        self.cnt = cnt
+        self.center = contourCentroid(cnt)
+        self.area = cv.contourArea(cnt)
+        self.ratio = contourRatio(cnt)
+        self.perimeter = max(1, cv.arcLength(cnt,True))
+        self.circularity = 4*np.pi*self.area/self.perimeter # https://learnopencv.com/blob-detection-using-opencv-python-c/
+        self.circleCenter, self.radius = cv.minEnclosingCircle(cnt)
+
+        self.intensity = intensity
+
+        self.rmseUncertainty = self.radius
+
+        self.overlappingLightSource = overlappingLightSource
+
+    def isOverlapping(self):
+        return self.overlappingLightSource is not None
+
+    def circleExtent(self):
+        #return self.circularity
+        return contourRatio(self.cnt)
+
+
 class AbstractLightSourceDetector:
     def __init__(self):
         self.img = np.zeros((10, 10)) # store the last processed image
@@ -61,6 +84,7 @@ class ModifiedHATS(AbstractLightSourceDetector):
                  maxIntensityChange=0.7, 
                  blurKernelSize=5, 
                  mode="valley", 
+                 #maxIntensityDecreaseWONewCandidates=10,
                  ignorePeakAtMax=False, 
                  showHistogram=False):
 
@@ -80,9 +104,7 @@ class ModifiedHATS(AbstractLightSourceDetector):
         self.ignorePeakAtMax = ignorePeakAtMax
         self.showHistogram = showHistogram
 
-        self.morphKernel = None
-        if blurKernelSize > 0:
-            self.morphKernel = circularKernel(blurKernelSize*2+1)
+        self.kernel = np.ones((21,21)) # for light source separation
 
         self.img = np.zeros((10, 10)) # store the last processed image
         self.iterations = 0
@@ -120,12 +142,11 @@ class ModifiedHATS(AbstractLightSourceDetector):
             roiMargin += max([ls.radius for ls in estDSPose.associatedLightSources])
             (x, y, w, h), roiCnt = regionOfInterest(featurePointsGuess, wMargin=roiMargin, hMargin=roiMargin, shape=gray.shape)
 
-            offset = (x, y)
-            gray = gray[y:y+h, x:x+w]
-
             minIntensity = min([ls.intensity for ls in estDSPose.associatedLightSources])
             minIntensity = self.maxIntensityChange*minIntensity
 
+            offset = (x, y)
+            gray = gray[y:y+h, x:x+w]
             _, gray = cv.threshold(gray, minIntensity, 256, cv.THRESH_TOZERO)
 
         img = gray.copy()
@@ -164,6 +185,7 @@ class ModifiedHATS(AbstractLightSourceDetector):
 
         img = img.copy()
         i = 0
+        lastThreshold = self.threshold
         while True:
             i += 1
 
@@ -180,13 +202,13 @@ class ModifiedHATS(AbstractLightSourceDetector):
             # Continue until we get less candidates (we want the most nof candidates)
             if len(newCandidates) < prevNCandidates:
                 break
-            elif len(newCandidates) > prevNCandidates:
+            else:
                 candidates = newCandidates
                 prevNCandidates = len(candidates)
-            else:
-                # If its equal, we keep the candidates from before to keep the contours as small as possible
-                pass
 
+                if lastThreshold - self.threshold > 10: # TODO: make this a parameter
+                    break
+                
         if self.peakMargin > 0 and len(histPeaks) > 0:
             self.threshold = histPeaks.pop()-1
             ret, imgTemp = cv.threshold(img, self.threshold, 255, self.thresholdType)
@@ -220,6 +242,14 @@ class ModifiedHATS(AbstractLightSourceDetector):
                                                                    offset=offset, 
                                                                    drawImg=drawImg)
 
+        # If light sources tend to be extremely overexposed and causes large overlaps, use this
+        # self.img, candidates = separateOverExposedCandidatesLocalPeak2(candidates, 
+        #                                                               gray.shape, 
+        #                                                               self.kernel,
+        #                                                               nFeatures,
+        #                                                               offset=offset, 
+        #                                                               drawImg=drawImg)
+
         candidates = candidates[:nFeatures+additionalCandidates]
 
 
@@ -247,10 +277,6 @@ class LocalPeak(AbstractLightSourceDetector):
         self.blurKernelSize = blurKernelSize
         self.sigma = 0.3*((self.blurKernelSize-1)*0.5 - 1) + 0.8
 
-        self.morphKernel = None
-        if blurKernelSize > 0:
-            self.morphKernel = circularKernel(blurKernelSize)
-
         self.ignorePAtMax = ignorePAtMax
 
         self.maxIter = maxIter
@@ -260,9 +286,17 @@ class LocalPeak(AbstractLightSourceDetector):
         return "Local Peak"
 
 
-    def validContour(self, cnt):
+    def validContour(self, cnt, maxIntensity):
         if cv.contourArea(cnt) > self.minArea and contourRatio(cnt) < self.minCircleExtent:
             return False
+        
+        radius = cv.minEnclosingCircle(cnt)[1]
+
+        # TODO: use parameters instead of hardcoded values
+        if maxIntensity < 180 and radius > 5:
+            # invalid
+            return False
+
         return True
     
 
@@ -299,6 +333,7 @@ class LocalPeak(AbstractLightSourceDetector):
             peakMargin = 0
         
         if self.blurKernelSize > 0:
+            #gray = cv.medianBlur(gray, self.blurKernelSize) # TODO: remove, temoporary
             gray = cv.GaussianBlur(gray, (self.blurKernelSize,self.blurKernelSize), self.sigma)
 
         (localMaxImg, 
@@ -347,20 +382,19 @@ class LocalPeak(AbstractLightSourceDetector):
         self.iterations = iterations
         logging.debug("Local max iterations: {}".format(self.iterations))
 
-        # If light sources are moderately overexposed and causes some overlapping, use this
-        self.img, candidates = separateOverExposedCandidatesSimple(candidates, 
-                                                                   gray.shape, 
-                                                                   offset=offset, 
-                                                                   drawImg=drawImg)
-
         # If light sources tend to be extremely overexposed and causes large overlaps, use this
-        # self.img, candidates = separateOverExposedCandidatesLocalPeak(candidates, 
-        #                                                               gray.shape, 
-        #                                                               self.kernel,
-        #                                                               offset=offset, 
-        #                                                               drawImg=drawImg)
+        self.img, candidates = separateOverExposedCandidatesLocalPeak2(candidates, 
+                                                                      gray.shape, 
+                                                                      self.kernel,
+                                                                      nFeatures,
+                                                                      offset=offset, 
+                                                                      drawImg=drawImg)
 
         candidates = candidates[:nFeatures+additionalCandidates]
+
+        if drawImg is not None:
+            for i, ls in enumerate(candidates):
+                drawInfo(drawImg, (ls.center[0]+15,ls.center[1]-15), str(i+1))
 
         return drawImg, candidates, roiCnt
     
@@ -435,7 +469,6 @@ def separateOverExposedCandidatesSimple(candidates, imgShape, offset=(0,0), draw
         
         # Otsu threshold is not suitable, generally too high threshold.
         # TODO: don't use a hardcoded threshold
-        # TODO: can we apply local peak on the distance transform image?
         _, threshImg = cv.threshold(dist, 150, 255, cv.THRESH_BINARY)
         
         # FInd the new contours in the thresholded distance transform
@@ -452,7 +485,7 @@ def separateOverExposedCandidatesSimple(candidates, imgShape, offset=(0,0), draw
     if drawImg is not None:
         # only plot the overlapping light sources
         for ls in overlappingLightSources:
-            cv.drawContours(drawImg, [ls.cnt], 0, (255,0,255), -1)
+            cv.drawContours(drawImg, [ls.cnt], 0, (0,100,255), -1)
             cv.circle(drawImg, ls.center, 3, (0,255,255), -1)
             cv.drawContours(binaryImg, [ls.cnt], 0, 255, -1, offset=(-offset[0], -offset[1]))
 
@@ -490,12 +523,8 @@ def separateOverExposedCandidatesLocalPeak(candidates, imgShape, kernel, offset=
                                              windowRad=0,
                                              maxIter=5*2)
 
-        # if len(contours) == 1:
-        #     # If we didn't detect any new light sources, we keep the original one
-        #     distTransCandidates.append(ls)
-        # else:
         if len(contours) == 1:
-            # If we didn't detect any new light sources, we keep the original one
+            # If we didn't detect any new contours, we keep the original light source
             lightSources.append(ls)
         else:
             for cnt in contours:
@@ -514,6 +543,59 @@ def separateOverExposedCandidatesLocalPeak(candidates, imgShape, kernel, offset=
     return binaryImg, candidates
 
 
+def separateOverExposedCandidatesLocalPeak2(candidates, imgShape, kernel, n, offset=(0,0), drawImg=None):
+    # Distance transform for overexposed light sources
+    lightSources = []
+
+    for ls in candidates:
+        if ls.area < 80: # TODO: make this a parameter
+            lightSources.append(ls)
+            continue
+        # First draw each contour
+        binaryImg = np.zeros(imgShape, dtype=np.uint8)
+        cv.drawContours(binaryImg, [ls.cnt], 0, 255, -1, offset=(-offset[0], -offset[1]))
+        
+        # https://docs.opencv.org/3.4/d2/dbd/tutorial_distance_transform.html
+        dist = cv.distanceTransform(binaryImg, cv.DIST_L2, 3)
+        # Normalize the distance image for range = {0.0, 1.0}
+        # so we can visualize and threshold it
+        cv.normalize(dist, dist, 0, 255.0, cv.NORM_MINMAX)
+        dist = dist.astype(np.uint8)
+        
+        (_, _, _, contours, _) = localPeakWindowed(dist, 
+                                             kernel=kernel, 
+                                             pMin=0.9,
+                                             pMax=0.9, 
+                                             n=n,
+                                             offset=offset,
+                                             windowRad=0,
+                                             maxIter=n)
+
+        if len(contours) == 1:
+            # If we didn't detect any new countours, we keep the original light source
+            lightSources.append(ls)
+        else:
+            for cnt in contours:
+                # Overlapping
+                lightSources.append(LightSource(cnt, ls.intensity, overlappingLightSource=ls))
+
+            if drawImg is not None:
+                # Draw the overlapping light source in red
+                cv.drawContours(drawImg, [ls.cnt], 0, (0,0,255), -1)
+
+    binaryImg = np.zeros(imgShape, dtype=np.uint8)
+    if drawImg is not None:
+        # only plot the overlapping light sources
+        for ls in lightSources:
+            cv.drawContours(binaryImg, [ls.cnt], 0, 255, -1, offset=(-offset[0], -offset[1]))
+            if ls.isOverlapping():
+                cv.drawContours(drawImg, [ls.cnt], 0, (255,0,0), -1)
+                cv.circle(drawImg, ls.center, 3, (0,255,255), -1)
+
+    return binaryImg, lightSources
+
+def contourDistanceTransform(cnt):
+    pass
 
 if __name__ == "__main__":
     pass

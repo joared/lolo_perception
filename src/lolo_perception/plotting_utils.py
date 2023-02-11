@@ -55,6 +55,7 @@ def plotPoseImageInfo(poseImg,
             
             drawProgressROI(poseImg, progress, roiCntUpdated, roiColor)
             
+            # Number of consecutive estimated poses
             cv.putText(poseImg, 
                        "#{}".format(dsPose.detectionCount), 
                        (roiCntUpdated[0][0]-10, roiCntUpdated[0][1]-10), 
@@ -63,14 +64,24 @@ def plotPoseImageInfo(poseImg,
                        thickness=2, 
                        color=(0,255,0))
 
+            # Number of attempts
             cv.putText(poseImg, 
                        "{}/{}".format(dsPose.attempts, dsPose.combinations), 
-                       #(roiCntUpdated[3][0]-10, roiCntUpdated[3][1]+30), 
                        (roiCntUpdated[1][0]-70, roiCntUpdated[1][1]-10), 
                        cv.FONT_HERSHEY_SIMPLEX, 
                        fontScale=1, 
                        thickness=2, 
                        color=(255,0,255))
+
+            # Warning if light sources are overlapping
+            if any([ls.isOverlapping() for ls in dsPose.associatedLightSources]):
+                cv.putText(poseImg, 
+                           "Overlapping!", 
+                           (roiCntUpdated[3][0]+10, roiCntUpdated[3][1]-15), 
+                           cv.FONT_HERSHEY_SIMPLEX, 
+                           fontScale=1, 
+                           thickness=2, 
+                           color=(0,0,255))
 
             # mahanalobis distance meter
             mahaDistRatio = 1
@@ -110,9 +121,10 @@ def plotPoseImageInfo(poseImg,
 
     if dsPose:
         #plotMaxReprojection(poseImg, dsPose)
+        
         plotErrorEllipses(poseImg, 
                           dsPose,
-                          displayReferenceSphere=False)
+                          displayReferenceSphere=True)
         
         plotPosePoints(poseImg, 
                     dsPose.translationVector, 
@@ -220,7 +232,8 @@ def plotErrorEllipse(img, center, pixelCovariance, confidence=5.991, color=(0,0,
     l1, l2 = lambdas # variances
     v1, v2 = vs
     if l2 < 0.25 or l2 < 0.25:
-        print("Variance really low!!!!!!!!!!!!!!!!!!!!!")
+        #print("Variance really low!!!!!!!!!!!!!!!!!!!!!")
+        pass
 
     if l1 > l2:
         #dir = -1
@@ -523,70 +536,4 @@ def plotFPS(img, fps, fpsVirtual=None):
 
 
 if __name__ == "__main__":
-    from pose_estimation import DSPose
-    from feature_model import FeatureModel
-    from camera_model import Camera
-    from image_processing import LightSource
-
-    featureModel = FeatureModel.fromYaml("/home/joar/LoLo/lolo_ws/src/lolo_perception/feature_models/big_prototype_5.yaml")
-    camera = Camera.fromYaml("/home/joar/LoLo/lolo_ws/src/lolo_perception/camera_calibration_data/usb_camera_720p_8.yaml")
-    
-    translationVector = np.array([-.52, .55, 4.5])
-    rotationVector = np.array([0., -.2, -.2]) 
-    camTranslationVector = np.array([0., 0., 0.])
-    camRotationVector = np.array([0., 0., 0]) 
-
-    pPoints = projectPoints(translationVector, rotationVector, camera, featureModel.features)
-    cnts = [np.array([[(int(p[0]), int(p[1]))]]) for p in pPoints]
-    associatedLightSources = [LightSource(cnt, 255) for cnt in cnts]
-    
-    _, roiCnt = regionOfInterest(pPoints, 80, 80)
-    roiCntUpdated = roiCnt
-
-    dsPose = DSPose(translationVector, 
-                    rotationVector, 
-                    camTranslationVector,
-                    camRotationVector, 
-                    associatedLightSources, 
-                    camera, 
-                    featureModel)
-
-    img = cv.imread("/home/joar/LoLo/thesis_images/general/original_image.png")
-
-    progress = 0
-    yaw = 0
-    pitch = 0
-    roll = 0
-    while True:
-        imgTemp = img.copy()
-        progress += 0.1
-        if progress > 1: 
-            progress = 0
-
-        yaw += np.random.randint(-4, 5)
-        pitch += np.random.randint(-4, 5)
-        roll += np.random.randint(-4, 5)
-        yaw = min(90, max(-90, yaw))
-        pitch = min(90, max(-90, pitch))
-        roll = min(90, max(-90, roll))
-
-        dsPose.rotationVector = R.from_euler("YXZ", (yaw,pitch,roll), degrees=True).as_rotvec()
-        print(dsPose.rotationVector)
-
-        imgTemp = plotPoseImageInfo(imgTemp,
-                                    "Testing",
-                                    dsPose,
-                                    camera,
-                                    featureModel,
-                                    False,                 # poseAquired
-                                    (90, 90, 90),
-                                    "LM",
-                                    roiCnt=roiCnt,
-                                    roiCntUpdated=roiCntUpdated,
-                                    progress=progress,
-                                    fixedAxis=False)
-
-        cv.imshow("Image", imgTemp)
-        key = cv.waitKey(1000)
-        if key == ord("q"):
-            break
+    pass

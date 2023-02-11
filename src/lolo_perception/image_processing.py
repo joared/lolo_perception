@@ -483,9 +483,21 @@ def localMax(gray, kernel, borderValue=255):
     localMaxImg = cv.bitwise_and(gray, gray, mask=eqMask)
     return localMaxImg
 
-def localMaxSupressed2(gray, kernel, p):
+def localMax2(gray, kernel, borderValue=255):
+    dilated = cv.dilate(gray, kernel, borderValue=borderValue, iterations=1)
+    eqMask = cv.compare(gray, dilated, cv.CMP_EQ)
+    localMaxImg = cv.bitwise_and(gray, gray, mask=eqMask)
+    return eqMask, localMaxImg
+
+def localMaxSupressed3(gray, kernel, p):
     seed = gray*p
-    seed = seed.astype(np.uint8)
+    seed = gray.astype(np.uint8)
+    dilated = cv.dilate(gray, kernel, borderValue=0, iterations=1)
+    eqMask = cv.compare(seed, dilated, cv.CMP_GE)
+    localMaxImg = cv.bitwise_and(gray, gray, mask=eqMask)
+    return localMaxImg
+
+def localMaxSupressed2(gray, kernel, p):
     dilated = cv.dilate(seed, kernel, borderValue=0, iterations=1)
     eqMask = cv.compare(gray, dilated, cv.CMP_GE)
     localMaxImg = cv.bitwise_and(gray, gray, mask=eqMask)
@@ -511,7 +523,7 @@ def localMaxDiff(gray, kernel, p):
     dilatedSupressed = dilatedSupressed.astype(np.uint8)
     eqMask = cv.compare(dilatedSupressed, eroded, cv.CMP_GE)
     localMaxImg = cv.bitwise_and(gray, gray, mask=eqMask)
-    return localMaxImg
+    return eqMask, localMaxImg
 
 def localMaxDiff2(gray, localMaxKernel, localMinKernel, p):
     dilated = cv.dilate(gray, localMaxKernel, borderValue=0, iterations=1)
@@ -685,6 +697,7 @@ def findMaxPeaks(gray, p, drawImg=None):
 
     return peakCenters, peakContours
 
+
 def pDecay(b, pMin, pMax, I, IMax=255.):
     assert 1-(pMax-pMin)/b > 0, "Invalid value of b, (b >={})".format(pMax-pMin)
     c = -1./255*np.log(1-(pMax-pMin)/b)
@@ -716,8 +729,11 @@ def localPeak(gray, kernel, pMin, pMax, n, minThresh=0, margin=1, ignorePAtMax=T
                 logging.debug("Ignoring p at max")
                 threshold = 254 # TODO: maybe another value is more suitable?
             else:
-                pTemp = pDecay(.175, pMin, pMax, I=maxIntensity)
-                threshold = int(pTemp*maxIntensity - 1)
+                if pMax < 1:
+                    pTemp = pDecay(.175, pMin, pMax, I=maxIntensity)
+                    threshold = int(pTemp*maxIntensity - 1)
+                else:
+                    threshold = max(maxIntensity-1-pMax, 0)
 
             ret, threshImg = cv.threshold(gray, threshold, 256, cv.THRESH_BINARY)
         elif np.max(localMaxImageMasked) > maxIntensity:
@@ -742,7 +758,7 @@ def localPeak(gray, kernel, pMin, pMax, n, minThresh=0, margin=1, ignorePAtMax=T
             # Egge
             if drawImg is not None and drawInvalidPeaks:
                 cv.drawContours(drawImg, [cntPeakOffset], 0, (0, 255, 255), 1)
-        elif validCntCB is not None and validCntCB(cntPeak) is False:
+        elif validCntCB is not None and validCntCB(cntPeak, maxIntensity) is False:
             if drawImg is not None and drawInvalidPeaks:
                 # Invalid contour
                 cv.drawContours(drawImg, [cntPeakOffset], 0, (255, 0, 255), 1)
@@ -765,13 +781,13 @@ def localPeak(gray, kernel, pMin, pMax, n, minThresh=0, margin=1, ignorePAtMax=T
         localMaxImageMasked = cv.drawContours(localMaxImageMasked, [cntPeak], 0, (0, 0, 0), -1)
 
         if iterations >= maxIter:
-            logging.debug("Peak maxiter reached")
+            logging.info("Local Peak maxiter reached")
             break
     
     if drawImg is not None:
         for i, pc in enumerate(peakCenters):
             cv.circle(drawImg, pc, 1, (255,0,255), 1)
-            drawInfo(drawImg, (pc[0]+15,pc[1]-15), str(i+1))
+            #drawInfo(drawImg, (pc[0]+15,pc[1]-15), str(i+1))
 
     return localMaxImage, localMaxImageMasked, peakCenters, peakContours, iterations
 
@@ -1580,7 +1596,7 @@ def featureAssociationSquareImprovedWithFilter(featurePoints, detectedLightSourc
 def featureAssociation(featurePoints, detectedLightSources, featurePointsGuess=None, drawImg=None):
     """
     Assumes that the orientation of the feature model is 0 around every axis relative to the camera frame
-    i.e. x and y values can be handled directly in the image plane
+    i.e. x and y values are handled directly in the image plane
     """
     detectedLightSources = list(detectedLightSources)
     detectedPoints = [ls.center for ls in detectedLightSources]
@@ -1635,432 +1651,6 @@ def featureAssociation(featurePoints, detectedLightSources, featurePointsGuess=N
             cv.circle(drawImg, (int(px), int(py)), 2, (255, 0, 0), 3)
 
     return associatedLightSources
-
-
-class LightSource:
-    def __init__(self, cnt, intensity):
-
-        self.cnt = cnt
-        self.center = contourCentroid(cnt)
-        self.area = cv.contourArea(cnt)
-        self.ratio = contourRatio(cnt)
-        self.perimeter = max(1, cv.arcLength(cnt,True))
-        self.circularity = 4*np.pi*self.area/self.perimeter # https://learnopencv.com/blob-detection-using-opencv-python-c/
-        self.circleCenter, self.radius = cv.minEnclosingCircle(cnt)
-
-        self.intensity = intensity
-
-        self.rmseUncertainty = self.radius
-
-        self.overlappingLightSources = []
-
-    def circleExtent(self):
-        #return self.circularity
-        return contourRatio(self.cnt)
-
-class LightSourceTracker:
-    def __init__(self, center, intensity, radius, maxPatchRadius, minPatchRadius, p=.975):
-        self.intensity = intensity
-        self.minIntensity = 20
-        self.center = center
-        self.radius = radius
-        self.maxPatchRadius = maxPatchRadius
-        self.minPatchRadius = minPatchRadius
-        
-        self.patchScale = 1.5
-        self.patchRadius = int(round(self.patchScale*self.radius))
-        
-        self.p = p
-
-        self.cnt = None
-
-        self.ksize = 11
-        self.locMaxKernel = circularKernel(self.ksize)
-
-    def _limitCenter(self, gray, center, radius):
-        x = max(min(center[0], gray.shape[1]-radius-1), radius)
-        y = max(min(center[1], gray.shape[0]-radius-1), radius)
-        return (x, y)
-
-    def __peakSelect(self, gray, peakImgPatch, center, patchRadius, drawImg=None):
-        peakImgPatch = peakImgPatch.copy()
-        peakContours = []
-        peakIntensities = []
-        peakPositions = []
-        ###
-        maxIntensity = np.max(peakImgPatch)
-        # filter 
-        #alpha = 1 # only intensitie within alpha % is considered
-        #threshold = min(maxIntensity, self.intensity)
-        #thresholdLower = max(int(threshold*(1-alpha)), 0) # intensity can only change by 10%
-        #thresholdUpper = min(int(threshold*(1+alpha)), 255)
-        #print("lower", thresholdLower)
-        #print("upper", thresholdUpper)
-        #peakImgPatch = cv.bitwise_and(peakImgPatch, peakImgPatch, mask=cv.inRange(peakImgPatch, thresholdLower, thresholdUpper))
-        #cv.imshow("thresholded peak img patch", peakImgPatch)
-
-        threshold = int(self.p*maxIntensity)
-        _, threshImgPatch = cv.threshold(peakImgPatch, threshold, 256, cv.THRESH_BINARY)
-
-        while np.max(peakImgPatch) > 0 and np.max(peakImgPatch) == maxIntensity:
-            y, x = np.unravel_index(np.argmax(peakImgPatch), peakImgPatch.shape)
-            
-            peakCntPatch, peakCnt = findPeakContourAt(threshImgPatch, (x,y), offset=(center[0]-patchRadius, center[1]-patchRadius))
-            x += center[0]-patchRadius
-            y += center[1]-patchRadius
-
-            #peakCntPatch = peakCnt - np.array((center[0]-patchRadius, center[1]-patchRadius)) # if gray is gray, hehe
-            peakImgPatch = cv.drawContours(peakImgPatch, [peakCntPatch], 0, (0), -1)
-            #peakCnt += np.array((center[0]-patchRadius, center[1]-patchRadius)) # if gray is a patch
-            for (cx,cy) in peakPositions:
-                if withinContour(cx, cy, peakCnt):
-                    break
-            else:        
-                peakPositions.append((x,y))
-                peakContours.append(peakCnt)
-                peakIntensities.append(gray[y, x])
-
-
-        if drawImg is not None:
-            for cnt in peakContours:
-                cv.drawContours(drawImg, [cnt], 0, (0,0,255), 1)  
-
-        if not peakContours:
-            return None
-
-        thePeakCnt = None
-        thePeakPos = None
-        #thePeakDistToCenter = None
-        thePeakAreaDiff = None
-        thePeakInt = None
-        # choose the one with similar area
-        prevArea = self.radius*self.radius*np.pi
-        for peakPos, peakCnt, peakInt in zip(peakPositions, peakContours, peakIntensities):
-            peakAreaDiff = abs(cv.contourArea(peakCnt) - prevArea)
-            peakCentroid = contourCentroid(peakCnt)
-            #peakDistToCenter = np.linalg.norm((peakCentroid[0]-center[0], peakCentroid[1]-center[1]))
-
-            #if thePeakCnt is None or peakDistToCenter < thePeakDistToCenter:
-            if thePeakCnt is None or peakAreaDiff < thePeakAreaDiff: 
-                thePeakCnt = peakCnt
-                thePeakPos = peakPos
-                #thePeakDistToCenter = peakDistToCenter
-                thePeakAreaDiff = peakAreaDiff
-                thePeakInt = gray[peakPos[1], peakPos[0]]
-
-
-        # filter by radius or area?
-        #peakContoursAreaFiltered = []
-        #for cnt in peakContours:
-        #    rad = cv.minEnclosingCircle(cnt)[1]
-        #    if self.radius *< rad
-        return thePeakInt, thePeakCnt
-
-    def _peakSelect(self, gray, peakImgPatch, center, patchRadius, drawImg=None):
-        # TODO
-        peakImgPatch = cv.GaussianBlur(peakImgPatch, (self.ksize,self.ksize), 0)
-        (peakDilationImg, 
-        peaksDilationMasked, 
-        peakCenters, 
-        peakContours,
-        iterations) = localPeak(peakImgPatch, 
-                                  kernel=self.locMaxKernel, 
-                                  pMin=self.p,
-                                  pMax=self.p, 
-                                  n=5,
-                                  minThresh=self.intensity*0.7,
-                                  # maybe this should be (self.kernelSize-1)/2 instead of peakMargin?
-                                  # or maybe it will remove the true candidates in case of weird shapes from "non-peaks"?
-                                  margin=0,
-                                  ignorePAtMax=True,
-                                  offset=(center[0]-patchRadius, center[1]-patchRadius),
-                                  maxIter=5,
-                                  drawImg=drawImg,
-                                  drawInvalidPeaks=True)
-
-        if len(peakCenters) > 0:
-            peak = peakCenters[0]
-            thePeakCnt = peakContours[0]
-            thePeakInt = gray[peak[1], peak[0]]
-        else:
-            return None
-        
-        return thePeakInt, thePeakCnt
-
-    def getLightSource(self):
-        return LightSource(self.cnt, self.intensity)
-
-    def update(self, gray, drawImg=None):
-        if drawImg is not None:
-            # plot the kernel used to find the light source
-            cv.circle(drawImg, self.center, self.patchRadius, (255,0,255), 1)
-
-        # here we add the kernel radius (size/2) so that the peak dilation do not detect false peaks at the edges 
-        patchRadius = self.patchRadius
-        patchKernelSize = patchRadius*2+1
-        patchKernel = circularKernel(patchKernelSize)
-        center = self.center
-        patch = gray[center[1]-patchRadius:center[1]+patchRadius+1, center[0]-patchRadius:center[0]+patchRadius+1]
-
-        if patch.shape[0] != patchKernel.shape[0] or patch.shape[1] != patchKernel.shape[1]:
-            # TODO: what happens with "i" here?
-            print("not right")
-            return False
-
-        # TODO: Masking the path with a circular kernel, edges might be accepted by findPeaks 
-        #patch = cv.bitwise_and(patch, patch, mask=patchKernel)
-        #cv.imshow("patch", patch)
-        #cv.waitKey(1)
-
-        ret = self._peakSelect(gray, patch, center, patchRadius, drawImg=drawImg)
-
-        if ret is None:
-            #self.intensity = 255
-            print("No peak detecteddddddddddd")
-            return False
-
-        peakIntensity, peakCnt = ret
-
-        newCenter = contourCentroid(peakCnt)
-        #newCenter = int(round(newCenter[0])), int(round(newCenter[1]))
-        newRadius = cv.minEnclosingCircle(peakCnt)[1]
-        newRadius = int(round(newRadius))
-        newRadius = max(1, newRadius)
-
-        self.center = newCenter
-        self.intensity = max(peakIntensity, self.minIntensity)
-        self.radius = newRadius
-        #self.patchRadius = int(round(self.patchScale*self.radius))
-        #self.patchRadius = min(self.maxPatchRadius, max(self.minPatchRadius, self.patchRadius))
-        self.patchRadius = self.radius + self.minPatchRadius
-        self.center = self._limitCenter(gray, self.center, self.patchRadius)
-        self.cnt = peakCnt
-
-        if drawImg is not None:
-            # plot the detected light source contour and the enclosing circle
-            cv.drawContours(drawImg, [peakCnt], 0, (0,255,0), 1)
-            cv.circle(drawImg, self.center, self.patchRadius, (255,0,0), 1)
-            cv.circle(drawImg, self.center, 1, (255,0,0), 3)
-
-        return True
-
-
-class LightSourceTracker2:
-    def __init__(self, center, intensity, radius, maxPatchRadius, minPatchRadius, p=.97):
-        self.intensity = intensity
-        self.minIntensity = 20
-        self.center = center
-        self.radius = radius
-        self.maxPatchRadius = maxPatchRadius
-        self.minPatchRadius = minPatchRadius
-        
-        self.patchScale = 1.5
-        self.patchRadius = int(round(self.patchScale*self.radius))
-        
-        self.p = p
-
-        self.cnt = None
-
-    def _limitCenter(self, gray, center, radius):
-        x = max(min(center[0], gray.shape[1]-radius-1), radius)
-        y = max(min(center[1], gray.shape[0]-radius-1), radius)
-        return (x, y)
-
-    def _peakSelect(self, localMaxImg, peakImgPatch, center, patchRadius, drawImg=None):
-        peakImgPatch = peakImgPatch.copy()
-        peakContours = []
-        peakIntensities = []
-        peakPositions = []
-        ###
-        maxIntensity = np.max(peakImgPatch)
-
-        threshold = int(self.p*maxIntensity)
-        _, threshImgPatch = cv.threshold(peakImgPatch, threshold, 256, cv.THRESH_BINARY)
-
-        while np.max(peakImgPatch) > 0 and np.max(peakImgPatch) == maxIntensity:
-            y, x = np.unravel_index(np.argmax(peakImgPatch), peakImgPatch.shape)
-            
-            peakCntPatch, peakCnt = findPeakContourAt(threshImgPatch, (x,y), offset=(center[0]-patchRadius, center[1]-patchRadius))
-            x += center[0]-patchRadius
-            y += center[1]-patchRadius
-
-            #peakCntPatch = peakCnt - np.array((center[0]-patchRadius, center[1]-patchRadius)) # if gray is gray, hehe
-            peakImgPatch = cv.drawContours(peakImgPatch, [peakCntPatch], 0, (0), -1)
-            #peakCnt += np.array((center[0]-patchRadius, center[1]-patchRadius)) # if gray is a patch
-            for (cx,cy) in peakPositions:
-                if withinContour(cx, cy, peakCnt):
-                    break
-            else:        
-                peakPositions.append((x,y))
-                peakContours.append(peakCnt)
-                peakIntensities.append(gray[y, x])
-
-
-        if drawImg is not None:
-            for cnt in peakContours:
-                cv.drawContours(drawImg, [cnt], 0, (0,0,255), 1)  
-
-        if not peakContours:
-            return None
-
-        thePeakCnt = None
-        thePeakPos = None
-        #thePeakDistToCenter = None
-        thePeakAreaDiff = None
-        thePeakInt = None
-        # choose the one with similar area
-        prevArea = self.radius*self.radius*np.pi
-        for peakPos, peakCnt, peakInt in zip(peakPositions, peakContours, peakIntensities):
-            peakAreaDiff = abs(cv.contourArea(peakCnt) - prevArea)
-            peakCentroid = contourCentroid(peakCnt)
-            #peakDistToCenter = np.linalg.norm((peakCentroid[0]-center[0], peakCentroid[1]-center[1]))
-
-            #if thePeakCnt is None or peakDistToCenter < thePeakDistToCenter:
-            if thePeakCnt is None or peakAreaDiff < thePeakAreaDiff: 
-                thePeakCnt = peakCnt
-                thePeakPos = peakPos
-                #thePeakDistToCenter = peakDistToCenter
-                thePeakAreaDiff = peakAreaDiff
-                thePeakInt = gray[peakPos[1], peakPos[0]]
-
-
-        # filter by radius or area?
-        #peakContoursAreaFiltered = []
-        #for cnt in peakContours:
-        #    rad = cv.minEnclosingCircle(cnt)[1]
-        #    if self.radius *< rad
-        return thePeakInt, thePeakCnt
-
-    def getLightSource(self):
-        return LightSource(self.cnt, self.intensity)
-
-    def update(self, gray, localMaxImage, drawImg=None):
-        if drawImg is not None:
-            # plot the kernel used to find the light source
-            cv.circle(drawImg, self.center, self.patchRadius, (255,0,255), 1)
-
-        # here we add the kernel radius (size/2) so that the peak dilation do not detect false peaks at the edges 
-        patchRadius = self.patchRadius
-        patchKernelSize = patchRadius*2+1
-        patchKernel = circularKernel(patchKernelSize)
-        center = self.center
-        patch = gray[center[1]-patchRadius:center[1]+patchRadius+1, center[0]-patchRadius:center[0]+patchRadius+1]
-
-        if patch.shape[0] != patchKernel.shape[0] or patch.shape[1] != patchKernel.shape[1]:
-            # TODO: what happens with "i" here?
-            print("not right")
-            return False
-
-        patch = cv.bitwise_and(patch, patch, mask=patchKernel)
-        #cv.imshow("patch", patch)
-
-        ret = self._peakSelect(gray, patch, center, patchRadius, drawImg=drawImg)
-
-        if ret is None:
-            #self.intensity = 255
-            print("No peak detecteddddddddddd")
-            return False
-
-        peakIntensity, peakCnt = ret
-
-        newCenter = contourCentroid(peakCnt)
-        #newCenter = int(round(newCenter[0])), int(round(newCenter[1]))
-        newRadius = cv.minEnclosingCircle(peakCnt)[1]
-        newRadius = int(round(newRadius))
-        newRadius = max(1, newRadius)
-
-        self.center = newCenter
-        self.intensity = max(peakIntensity, self.minIntensity)
-        self.radius = newRadius
-        self.patchRadius = int(round(self.patchScale*self.radius))
-        self.patchRadius = min(self.maxPatchRadius, max(self.minPatchRadius, self.patchRadius))
-        self.center = self._limitCenter(gray, self.center, self.patchRadius)
-        self.cnt = peakCnt
-
-        if drawImg is not None:
-            # plot the detected light source contour and the enclosing circle
-            cv.drawContours(drawImg, [peakCnt], 0, (0,255,0), 1)
-            cv.circle(drawImg, self.center, self.patchRadius, (255,0,0), 1)
-            cv.circle(drawImg, self.center, 1, (255,0,0), 3)
-
-        return True
-
-class LightSourceTrackInitializer:
-    def __init__(self, radius=10, maxPatchRadius=50, minPatchRadius=7, p=0.975, maxIntensityChange=0.7, maxMovement=20):
-        self.radius = radius
-        self.maxPatchRadius = maxPatchRadius
-        self.minPatchRadius = minPatchRadius
-        self.p = p
-
-        self.maxMovement = maxMovement
-        self.maxIntensityChange = maxIntensityChange
-
-        self.trackers = []
-        self.iterations = 0
-
-    def getMaskedImg(self, gray):
-        grayMasked = gray.copy()
-        for tr in self.trackers:
-            cv.circle(grayMasked, tr.center, tr.patchRadius, (0,0,0), -1)
-        
-        return grayMasked
-
-    def _sortLightSources(self, candidates, n):
-        candidates.sort(key=lambda p: (p.intensity, p.area), reverse=True)
-        candidates = candidates[:n]
-        
-        return candidates
-
-    def getCandidates(self, n=None):
-        if n is None:
-            n = len(self.trackers)
-        return self._sortLightSources([tr.getLightSource() for tr in self.trackers], n)
-
-    def reset(self):
-        self.trackers = []
-        self.iterations = 0
-
-    def update(self, gray, newTrackerCenters=None, drawImg=None):
-        self.iterations += 1
-
-        if newTrackerCenters is not None:
-            for center in newTrackerCenters:
-                self.trackers.append(LightSourceTracker(center,
-                                                        intensity=gray[center[1], center[0]], 
-                                                        radius=self.radius, 
-                                                        maxPatchRadius=self.maxPatchRadius, 
-                                                        minPatchRadius=self.minPatchRadius,
-                                                        p=self.p))
-
-        for tr in list(self.trackers):
-            center = tr.center
-            intensity = tr.intensity
-            success = tr.update(gray, drawImg=drawImg)
-            
-            if success:
-                newCenter = tr.center
-                newIntensity = tr.intensity
-
-                if np.linalg.norm([center[0]-newCenter[0], center[1]-newCenter[1]]) > self.maxMovement:
-                    print("Movement to large")
-                    self.trackers.remove(tr)
-
-                elif newIntensity < intensity*self.maxIntensityChange:
-                    print("Intensity change to large")
-                    self.trackers.remove(tr)
-
-            else:
-                # TODO: remove tracker here?
-                self.trackers.remove(tr)
-
-        for tr1, tr2 in itertools.combinations(list(self.trackers), 2):
-            if tr1.center == tr2.center:
-                print("Trackers same place, removing one")
-                try:
-                    self.trackers.remove(tr2)
-                except:
-                    pass
-
                
 
 if __name__ == '__main__':
