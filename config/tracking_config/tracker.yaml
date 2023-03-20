@@ -12,18 +12,30 @@ tracker:
 
 light_source_detector:
     ModifiedHATSLocalPeak:
-        toHATSScale:  3 # 3
+        toHATSScale:  3
         toPeakScale: 1.5
 
         modifiedHATSParams:
-            blurKernelSize: &blur_kernel_size 15 # large blur -> large p (15 is large)
+            blurKernelSize: &blur_kernel_size 15 # large blur -> large p (7/15)
             minArea: &min_area 150 #80/150
-            minRatio: &min_circle_extent 0.0
+            minRatio: &min_circle_extent 0.3
             maxIntensityChange: &max_intensity_change 0.7
             ignorePeakAtMax: false
             peakMargin: 0
+            noNewCandidatesIntensityThresh: 10
             mode: 'peak'
+            separationThresh: 150
             showHistogram: false
+            lightSourceFilters: # The filters are applied in the order they are defined
+                 - largeAreaSmallExtent: &filter_circle_extent
+                     activity:
+                         area: [150, .inf]
+                     validity:
+                         circleExtent: [0.3, .inf]
+                 - excluding:
+                     activity:
+                         area: [0, 149]
+                     validity: # If validity not given, the filter will always return False (if active)
 
         localPeakParams:
             blurKernelSize: *blur_kernel_size
@@ -35,7 +47,14 @@ light_source_detector:
             pMin: 0.99 # 0.97 if blur = 11
             pMax: 0.99
             maxIter: 100
-            filterAfter: false
+            separationFraction: 0.9
+            lightSourceFilters:
+                - lowIntensityRadius: # Filter light sources with low intensity and large radius
+                    activity:
+                        intensity: [0, 180]
+                    validity:
+                        radius: [1,5] # [1,5] if blur == 15 else [1,3]
+                - largeAreaSmallExtent: *filter_circle_extent # We apply the same filter as for ModifiedHats
 
 pose_estimator:
     initFlag: "LM"

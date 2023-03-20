@@ -584,6 +584,22 @@ def findContourAt(gray, center):
     return foundCnt
 
 def findPeakContourAt(gray, center, offset=None, mode=cv.RETR_EXTERNAL):
+    """
+    TODO -make efficient using floodfill
+    # Flood fill region around target pixel with unique color
+    floodfill_mask = img.copy()
+    cv2.floodFill(floodfill_mask, None, (col, row), 255)
+
+    # Find contours of unique color
+    contours, _ = cv2.findContours(floodfill_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Get contour surrounding target pixel
+    contour = None
+    for c in contours:
+        if cv2.pointPolygonTest(c, (col, row), False) >= 0:
+            contour = c
+            break
+    """
     _, contours, hier = cv.findContours(gray, mode, cv.CHAIN_APPROX_SIMPLE)
 
     
@@ -615,6 +631,41 @@ def findPeakContourAt(gray, center, offset=None, mode=cv.RETR_EXTERNAL):
         return None
 
     return foundCnt, foundCntOffset
+
+
+def findPeakContourFloodFill(gray, center, loDiff=0, upDiff=0, offset=None):
+    """
+    
+    """
+    
+    floodfillMask = gray.copy()
+    mask = np.zeros((gray.shape[0] + 2, gray.shape[1] + 2), dtype=np.uint8)
+    #p = 0.97
+    #loDiff = int(gray[center[1], center[0]]*(1-p))
+    retval, image, mask, rect = cv.floodFill(floodfillMask, mask, center, 255, loDiff=loDiff, upDiff=upDiff, flags=cv.FLOODFILL_FIXED_RANGE)
+    mask *= 255
+    mask = mask[1:mask.shape[0]-1, 1:mask.shape[1]-1]
+    _, contours, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+
+    if offset is None:
+        contoursOffset = [cnt for cnt in contours]
+    else:
+        _, contoursOffset, hier = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE, offset=offset)
+
+    # Get contour surrounding target pixel
+    foundCnt = None
+    foundCntOffset = None
+    if len(contours) > 1:
+        raise Exception("This should not happen!")
+    
+    contour = contours[0]
+    contourOffset = contoursOffset[0]
+    if withinContour(center[0], center[1], contour):
+        foundCnt = contour
+        foundCntOffset = contourOffset
+
+    return foundCnt, foundCntOffset
+
 
 def findMaxPeakAt(gray, center, p):
     
@@ -704,6 +755,94 @@ def pDecay(b, pMin, pMax, I, IMax=255.):
     return pMin + b*(1-np.exp(-c*I))
 
 
+def localPeakFloodFill(gray, kernel, pMin, pMax, n, minThresh=0, margin=1, ignorePAtMax=True, offset=(0,0), maxIter=100, validCntCB=None, drawImg=None, drawInvalidPeaks=False):
+    
+    # Calculate local max and threshold (to zero) the local max with the given minThresh
+    localMaxImage = localMax(gray, kernel, borderValue=0)
+    _, localMaxImage = cv.threshold(localMaxImage, minThresh, 255, cv.THRESH_TOZERO)
+
+    localMaxImageMasked = localMaxImage.copy() # A copy of the local max image that will be "painted black" for each peak iteration
+    maxIntensity = np.inf                      # The current max intensity of the masked local max image
+    peakCenters = []                            
+    peakContours = []
+
+    iterations = 0
+    while True:
+        if len(peakCenters) >= n:
+            logging.debug("Found {} peaks, breaking".format(n))
+            break
+
+        if np.max(localMaxImageMasked) < maxIntensity:
+            maxIntensity = np.max(localMaxImageMasked)
+            if maxIntensity == 0:
+                break
+            if maxIntensity == 255 and ignorePAtMax:
+                # if it is maximum intensity, ignore p
+                logging.debug("Ignoring p at max")
+                threshold = 254 # TODO: maybe another value is more suitable?
+            else:
+                if pMax < 1:
+                    pTemp = pDecay(.175, pMin, pMax, I=maxIntensity)
+                    threshold = int(pTemp*maxIntensity - 1)
+                else:
+                    threshold = max(maxIntensity-1-pMax, 0)
+
+        elif np.max(localMaxImageMasked) > maxIntensity:
+            raise Exception("Something went wrong in local peak,")
+
+        iterations += 1
+        # TODO: this could probably be more efficient, extracting all contours at this intensity level at the same time
+        maxIndx = np.unravel_index(np.argmax(localMaxImageMasked), gray.shape)
+        center = maxIndx[1], maxIndx[0]
+        cntPeak, cntPeakOffset = findPeakContourFloodFill(gray, center, maxIntensity-threshold, 255, offset=offset)#, mode=cv.RETR_LIST)
+
+        if cntPeak is None:
+            logging.error("Something went wrong...")
+            break
+
+        # Check if contour is on edge
+        cnts = [cntPeak]
+        if maxIntensity != 255:
+            # we only remove edge contours if they don't have max value
+            cnts = removeContoursOnEdges(localMaxImage, cnts)
+        if not cnts:
+            # Egge
+            if drawImg is not None and drawInvalidPeaks:
+                cv.drawContours(drawImg, [cntPeakOffset], 0, (0, 255, 255), 1)
+        elif validCntCB is not None and validCntCB(cntPeak, maxIntensity) is False:
+            # Invalid contour
+            if drawImg is not None and drawInvalidPeaks:
+                cv.drawContours(drawImg, [cntPeakOffset], 0, (255, 0, 255), 1)
+        else:
+            for pc in peakCenters:
+                    
+                if withinContour(pc[0], pc[1], cntPeakOffset) or nextToContour(pc[0], pc[1], cntPeakOffset, margin=margin): # TODO: this should be checked using the center of the new peak instead
+                    # Overlapping
+                    if drawImg is not None and drawInvalidPeaks:
+                        cv.drawContours(drawImg, [cntPeakOffset], 0, (0, 0, 255), 1)
+                    break
+
+            else:
+                # Found
+                peakCenters.append((center[0]+offset[0], center[1]+offset[1]))
+                peakContours.append(cntPeakOffset)
+                if drawImg is not None:
+                    cv.drawContours(drawImg, [cntPeakOffset], 0, (255, 0, 0), -1)
+
+        localMaxImageMasked = cv.drawContours(localMaxImageMasked, [cntPeak], 0, (0, 0, 0), -1)
+
+        if iterations >= maxIter:
+            logging.info("Local Peak maxiter reached")
+            break
+    
+    if drawImg is not None:
+        for i, pc in enumerate(peakCenters):
+            cv.circle(drawImg, pc, 1, (255,0,255), 1)
+            #drawInfo(drawImg, (pc[0]+15,pc[1]-15), str(i+1))
+
+    return localMaxImage, localMaxImageMasked, peakCenters, peakContours, iterations
+
+
 def localPeak(gray, kernel, pMin, pMax, n, minThresh=0, margin=1, ignorePAtMax=True, offset=(0,0), maxIter=100, validCntCB=None, drawImg=None, drawInvalidPeaks=False):
     
     # Calculate local max and threshold (to zero) the local max with the given minThresh
@@ -759,8 +898,8 @@ def localPeak(gray, kernel, pMin, pMax, n, minThresh=0, margin=1, ignorePAtMax=T
             if drawImg is not None and drawInvalidPeaks:
                 cv.drawContours(drawImg, [cntPeakOffset], 0, (0, 255, 255), 1)
         elif validCntCB is not None and validCntCB(cntPeak, maxIntensity) is False:
+            # Invalid contour
             if drawImg is not None and drawInvalidPeaks:
-                # Invalid contour
                 cv.drawContours(drawImg, [cntPeakOffset], 0, (255, 0, 255), 1)
         else:
             for pc in peakCenters:

@@ -21,6 +21,7 @@ from lolo_perception.plotting_utils import plotFPS
 from lolo_perception.image_processing import scaleImageToWidth
 from lolo_perception.image_dataset import ImageDataset
 from lolo_perception.tracker import Tracker
+from lolo_perception.image_analyzers import FloodFillAnalyzer
 
 class Trackbar:
     def __init__(self, name, wName, value, maxvalue, minValue=0):
@@ -375,6 +376,7 @@ class ImageAnalyzeNode:
         playbackTrackbar = Trackbar("Playback FPS", wName, dataset.metadata["playback_fps"], 60, minValue=1)
 
         labeler = ImageLabeler()
+        analyzers = [FloodFillAnalyzer()]
         while True:
             
             fpsTimer.start()
@@ -413,6 +415,9 @@ class ImageAnalyzeNode:
                         key = ord("l")
                     dataset.addLabels(labels, imgIdx)
             else:
+                # TODO: use analyzers here
+                #key, imgTemp = analyzers[0].analyze(wName, imgTemp)
+
                 if labels:
                     # If the image has associated labels, draw them.
                     labelsTemp = labels

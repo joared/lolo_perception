@@ -167,6 +167,15 @@ def calcPoseCovarianceFixedAxis(camera, featureModel, translationVector, rotatio
 
 
 def calcPoseCovariance(camera, featureModel, translationVector, rotationVector, pixelCovariance):
+    """
+    pixelCovariance - 2x2 or Nx2x2 where N is the number of features
+    """
+
+    allCovariancesGiven = False
+    if len(pixelCovariance.shape) == 3:
+        assert pixelCovariance.shape == (len(featureModel.features),2,2), "Incorrect shape of pixelCovariance '{}', should be '{}'".format(pixelCovariance.shape, (len(featureModel.features),2,2))
+        allCovariancesGiven = True
+
     _, jacobian = cv.projectPoints(featureModel.features, 
                                    rotationVector.reshape((3, 1)), 
                                    translationVector.reshape((3, 1)), 
@@ -177,15 +186,77 @@ def calcPoseCovariance(camera, featureModel, translationVector, rotationVector, 
     transJ = jacobian[:, 3:6]
     J = np.hstack((transJ, rotJ)) # reorder covariance as used in PoseWithCovarianceStamped
 
-    # How to rotate covariance: https://robotics.stackexchange.com/questions/2556/how-to-rotate-covariance
+    if allCovariancesGiven:
+        sigma = scipy.linalg.block_diag(*pixelCovariance)
+    else:
+        sigma = scipy.linalg.block_diag(*[pixelCovariance]*len(featureModel.features))
 
-    sigma = scipy.linalg.block_diag(*[pixelCovariance]*len(featureModel.features))
+    #sigmaInv = np.linalg.inv(sigma)
+    retval, sigmaInv = cv.invert(sigma, flags=cv.DECOMP_CHOLESKY)
 
-    sigmaInv = np.linalg.inv(sigma)
     try:
+        # C = (J^T * S^-1 * J)^-1
         mult = np.matmul(np.matmul(J.transpose(), sigmaInv), J)
-        covariance = np.linalg.inv(mult)
+        retval, covariance = cv.invert(mult, flags=cv.DECOMP_CHOLESKY)
+        
+        if not retval:
+            logging.error("Inversion of the hessian failed with return value: {}".format(retval))
     except np.linalg.LinAlgError as e:
         print("Singular matrix")
 
     return covariance
+
+
+def calcPoseCovarianceEuler(camera, featureModel, translationVector, rotationVector, pixelCovariance):
+    
+    # Rotation vector covariance
+    covarianceRvec = calcPoseCovariance(camera, featureModel, translationVector, rotationVector, pixelCovariance)
+
+    # How to rotate covariance: https://robotics.stackexchange.com/questions/2556/how-to-rotate-covariance
+    JrvecToEuler = jacobianRvec2euler(rotationVector)
+    #print(JrvecToEuler.shape)
+    J = np.zeros((6,6))
+    J[:3, :3] = np.eye(3)
+    J[3:, 3:] = JrvecToEuler
+    #J = np.hstack((np.eye(3), JrvecToEuler))
+    covariance = np.matmul(np.matmul(J, covarianceRvec), J.transpose())
+
+    return covariance
+
+
+def jacobianRvec2euler(rot_vec):
+    # TODO: Not used atm, not sure if it is correct.
+    # Calculate the Jacobian matrix from the rotation vector
+    phi, theta, psi = rot_vec
+    cphi = np.cos(phi)
+    sphi = np.sin(phi)
+    ctheta = np.cos(theta)
+    stheta = np.sin(theta)
+    cpsi = np.cos(psi)
+    spsi = np.sin(psi)
+    
+    dR_dphi = np.array([
+        [0, 0, 0],
+        [0, cphi*stheta*cpsi + sphi*spsi, cphi*stheta*spsi - sphi*cpsi],
+        [0, cphi*ctheta*cpsi - sphi*spsi, cphi*ctheta*spsi + sphi*cpsi]
+    ])
+    
+    dR_dtheta = np.array([
+        [-stheta*cpsi, -stheta*spsi, -ctheta],
+        [sphi*ctheta*cpsi, sphi*ctheta*spsi, -sphi*stheta],
+        [cphi*ctheta*cpsi, cphi*ctheta*spsi, -cphi*stheta]
+    ])
+    
+    dR_dpsi = np.array([
+        [-ctheta*spsi, ctheta*cpsi, 0],
+        [-sphi*stheta*spsi + cphi*cpsi, sphi*stheta*cpsi + cphi*spsi, 0],
+        [cphi*stheta*spsi + sphi*cpsi, -cphi*stheta*cpsi + sphi*spsi, 0]
+    ])
+    
+    # Combine the partial derivatives into the Jacobian matrix
+    J = np.zeros((3, 3))
+    J[:, 0] = np.dot(dR_dphi, rot_vec)
+    J[:, 1] = np.dot(dR_dtheta, rot_vec)
+    J[:, 2] = np.dot(dR_dpsi, rot_vec)
+    
+    return J

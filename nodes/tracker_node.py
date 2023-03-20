@@ -250,25 +250,22 @@ class PerceptionNode:
             if self.cvShow:
                 self.showImages(self.tracker.poseImg,
                                 self.tracker.processedImg,
-                                self.tracker.lightSourceDetector.img)
+                                self.tracker.lightSourceDetector.img,
+                                width=640)
                
             rate.sleep()
 
 
-    def showImages(self, poseImg, processedImg, detectorImg, width=640):
+    def showImages(self, poseImg, processedImg, detectorImg, width=None):
         show = False
-        if poseImg is not None:
-            show = True
-            cv.imshow("Tracking", scaleImageToWidth(poseImg, width))
-
-        if processedImg is not None:
-            show = True
-            cv.imshow("Light source detection", scaleImageToWidth(processedImg, width))
-
-        if detectorImg is not None:
-            show = True
-            cv.imshow("Image processing", scaleImageToWidth(detectorImg, width))
-
+        
+        for img, imgName in zip((poseImg, processedImg, detectorImg), ("Tracking", "Light source detection", "Image processing")):
+            if img is not None:
+                show = True
+                if width:
+                    img = scaleImageToWidth(img, width)
+                cv.imshow(imgName, img)
+        
         if show:
             cv.waitKey(1)
 

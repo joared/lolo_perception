@@ -2,7 +2,7 @@ import cv2 as cv
 import numpy as np
 import lolo_perception.py_logging as logging
 from scipy.spatial.transform import Rotation as R
-from lolo_perception.pose_estimation import projectPoints, reprojectionError, calcImageCovariance, calcMahalanobisDist, calcPoseCovarianceFixedAxis, calcPoseCovariance, calcCamPoseCovariance
+from lolo_perception.pose_estimation import projectPoints, reprojectionError, calcImageCovariance, calcMahalanobisDist, calcPoseCovarianceEuler, calcPoseCovariance
 
 
 class DSPose:
@@ -48,6 +48,8 @@ class DSPose:
                                                        self.featureModel.features, 
                                                        np.array([ls.center for ls in self.associatedLightSources], dtype=np.float32))
 
+        # TODO: might be better to use the detected contour as image covariance
+        # instead of using the spherical projection with predetermined radius (detectionTolerance and displacement uncertainty)
         self.pixelCovariances = calcImageCovariance(self.translationVector, 
                                                     self.rotationVector, 
                                                     self.camera, 
@@ -95,15 +97,19 @@ class DSPose:
         if pixelCovariance is None:
             pixelCovariance = self.pixelCovariances
 
-        # TODO: this is not the convention of the covariance that ROS Pose messages uses
-        # ROS says that fixed axis (euler) should be used. However this covariance is calculated 
-        # using the rotation vector.
-        covariance = calcPoseCovarianceFixedAxis(self.camera, 
-                                                 self.featureModel, 
-                                                 self.translationVector, 
-                                                 self.rotationVector, 
-                                                 pixelCovariance)
+        # TODO: Not sure if the euler covariance calculation is correct
+        #covariance = calcPoseCovarianceEuler(self.camera, 
+        #                                     self.featureModel, 
+        #                                     self.translationVector, 
+        #                                     self.rotationVector, 
+        #                                     pixelCovariance)
 
+        # Calculates the covariance using the rotation vector
+        covariance = calcPoseCovariance(self.camera, 
+                                        self.featureModel, 
+                                        self.translationVector, 
+                                        self.rotationVector, 
+                                        pixelCovariance)
         self.covariance = covariance
 
         logging.debug("Calculated covariance for pose")

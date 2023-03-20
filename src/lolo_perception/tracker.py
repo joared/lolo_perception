@@ -30,9 +30,9 @@ class LightSourceCombinationGenerator:
             if associationFlag == self.ASSOCIATE_SIMPLE:
                 return featureAssociation(self.featureModel.features, comb)
             elif associationFlag == self.ASSOCIATE_SQUARE_W_FILTER:
-                # TODO: make "p" a parameter
+                # TODO: HARDCODED - make "p" a parameter
                 # TODO: the "square" filter should be implemented in postAssociationFilter
-                return featureAssociationSquareImprovedWithFilter(self.featureModel.features, comb, p=0.33) # p = 0.07, 0.33
+                return featureAssociationSquareImprovedWithFilter(self.featureModel.features, comb, p=0.33)
             else:
                 raise Exception("Invalid association flag")
             
@@ -41,7 +41,7 @@ class LightSourceCombinationGenerator:
 
 
     def group(self, candidates):
-        # TODO: Grouping the candidates (based on features such as area, size and intensity)
+        # TODO: Group the candidates (based on features such as area, size and intensity)
         # can speed up the iteration.
 
         # At least one group
@@ -100,6 +100,7 @@ class Tracker:
     PLOTTING_DISABLED = "disabled"
     PLOTTING_SIMPLE = "simple"
     PLOTTING_FANCY = "fancy"
+
 
     def __init__(self, 
                  camera, 
@@ -160,6 +161,7 @@ class Tracker:
         self.processedImg = None
         self.poseImg = None
 
+
     @staticmethod
     def create(trackingYaml, camera, dockingStation):
         from lolo_perception.camera_model import Camera
@@ -207,6 +209,7 @@ class Tracker:
 
         return tracker
 
+
     def updateDSPoseFromNewCameraPose(self, estDSPose, estCameraPoseVector):
         if self.estCameraPoseVector is not None and estCameraPoseVector is not None:
             logging.debug("Updating the estimated pose from new camera pose")
@@ -242,6 +245,7 @@ class Tracker:
         self.estCameraPoseVector = estCameraPoseVector
 
         return estDSPose
+
 
     def estimatePose(self, 
                      imgColor, 
