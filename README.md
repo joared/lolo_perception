@@ -30,7 +30,7 @@ A hybrid approach for the light source detection algorithm have been implemented
     roslaunch lolo_perception tracker.launch
 
 Launches tracker_node.py + some extra helper nodes (if specified).
-Launch file mainly for executing tracker_node.py (see below) with some extra functionality.
+Mainly for executing tracker_node.py (see below) with some extra functionality.
 
 ## tracker_node.py
 
